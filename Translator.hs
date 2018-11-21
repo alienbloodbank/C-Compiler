@@ -6,8 +6,8 @@ import System.Exit
 
 {-
 Translator 
-Authors: Soubhk Ghosh, Haokun Liu
-11/17/2018
+Author: Soubhk Ghosh
+11/19/2018
 -}
 
 getComments :: [Token] -> [String]
@@ -42,6 +42,74 @@ printError text = do putStrLn text
 tokenType :: String -> String
 tokenType = takeWhile (/=' ')
 
+-- vonNeumannInitCode :: String
+vonNeumannInitCode = "#define N 20000\n" ++
+                     "int sp, fp, r1, r2, r3;\n" ++
+                     "int mem[N];\n\n" ++
+                     "int main() {\n"
+
+-- vonNeumannExitCode :: String
+vonNeumannExitCode = "mainReturn:;\n" ++
+                     "return mem[fp - 1];\n}\n"
+
+initRegistersAndGlobalData :: Table -> String
+initRegistersAndGlobalData (Table _ _ (Temps (Counts c1 _, _, _))) = "fp = 2 + " ++ (show c1) ++ ";\n" ++
+                                                                     "sp = 2 + " ++ (show c1) ++ ";\n" ++
+                                                                     "mem[fp - 2] = &&mainReturn;\n" ++
+                                                                     "goto mainFunc;\n"
+
+-- initJumptableData :: Table -> String
+-- initJumptableData (Table _ lc2 (Temps (Counts c1 _, _, _))) = concat ["mem[" ++ (show (c1 + i - 1)) ++ 
+--                                                                "] = &&454RETLABEL" ++ (show i) ++ ";\n" | i <- [1..lc2]]
+
+-- helper
+replStr :: String -> String -> String -> String
+replStr str old new = foldl ((\newSub before after -> before ++ newSub ++ after) new) firstChunk otherChunks
+                      where chunks = splitStr str old
+                            firstChunk = head chunks
+                            otherChunks = tail chunks
+
+splitStr str sub = mkChunkLst str sub []
+    where
+      -- mkChunkLst 'src string' 'substr-to-extract' 'list of chunks'
+      -- makes list of chunks located between 'substr-to-extract' pieces in src string
+      mkChunkLst [] _ chunkLst = chunkLst
+      mkChunkLst str sub chunkLst = mkChunkLst after sub (chunkLst ++ [chunk])
+          where (chunk, _, after) = takeOut str sub [] []
+
+takeOut after [] before match = (before, match, after)
+takeOut [] _ before match = (before, match, [])
+takeOut (x:xs) (y:ys) before match
+       | x == y = takeOut xs ys before (match ++ [x])
+       | otherwise = takeOut xs (y:ys) (before ++ [x]) []
+
+prologue :: Table -> String -> String
+prologue (Table _ _ (Temps (_, Counts c2 _, _))) idenValue = idenValue ++ "Func:;\n" ++
+                                                             "fp = sp;\n" ++
+                                                             "sp = fp + " ++ (show c2) ++ ";\n"
+
+epilogue :: Table -> Maybe String -> String
+epilogue table s = (if s == Nothing then "\n" else ("mem[fp - 1] = " ++ (let (Just id) = s in id) ++ ";\n")) ++
+                   "sp = fp;\n" ++
+                   "goto *mem[fp - 2];\n"
+
+preJump :: String -> [String] -> String
+preJump label varList = (concat (zipWith (\x y -> "mem[sp + " ++ (show x) ++ "] = " ++ y ++ ";\n") [0..] varList)) ++
+                        (if null varList then "\n" else "sp = sp + " ++ (show (length varList)) ++ ";\n") ++
+                        "mem[sp] = fp;\n" ++
+                        "mem[sp + 1] = &&" ++ label ++ ";\n" ++
+                        "sp = sp + 3;\n"
+
+postJump :: String -> Maybe String -> String
+postJump label s = label ++ ":;\n" ++
+                   "fp = mem[sp - 3];\n" ++
+                   (if s == Nothing then "\n" else ((let (Just id) = s in id) ++ " = mem[sp - 1];\n")) ++
+                   "sp = fp + $LOCAL_COUNT$;\n"
+
+applyLocalCount :: Table -> String -> String
+applyLocalCount (Table _ _ (Temps (_, Counts c2 _, _))) code = (replStr code "$LOCAL_COUNT$" (show c2))
+
+-- Token consumer
 match :: TokenIterator -> String -> TokenIterator
 match (currentToken, rest, cline) expected
   | (tokenType currentToken) == expected = nextToken rest cline
@@ -53,7 +121,7 @@ program (currentToken, rest, cline) table
   | (tokenType currentToken) `elem` (predict "program_data") = 
     let (ti1, code1, table1) = (program_data (currentToken, rest, cline) table) in
     let ti2 = (match ti1 "EOF") in
-    (ti2, (programDecls table1 "global") ++ code1, table1)
+    (ti2, (initRegistersAndGlobalData table1) ++ code1, table1)
   | otherwise = errorWithoutStackTrace ("Syntax Error: line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
 
 -- program_data -> ε | global_decl program_data
@@ -62,8 +130,8 @@ program_data (currentToken, rest, cline) table
   | (tokenType currentToken) `elem` (parseTable "program_data" "FOLLOW") =
     ((currentToken, rest, cline), "", table)
   | (tokenType currentToken) `elem` (predict "global_decl") =
-    let (ti1, code1, table1) = (global_decl (currentToken, rest, cline) table) in 
-    let (ti2, code2, table2) = (program_data ti1 table1) in 
+    let (ti1, code1, table1) = (global_decl (currentToken, rest, cline) table) in
+    let (ti2, code2, table2) = (program_data ti1 table1) in
     (ti2, code1 ++ code2, table2)
   | otherwise = errorWithoutStackTrace ("Syntax Error: line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
 
@@ -71,15 +139,15 @@ program_data (currentToken, rest, cline) table
 global_decl :: TokenIterator -> Table -> (TokenIterator, String, Table)
 global_decl (currentToken, rest, cline) table
   | (tokenType currentToken) `elem` (predict "type_name") =
-    let (ti1, code1) = (type_name (currentToken, rest, cline)) in
-    let ti2 = (match ti1 "identifier") in 
-    let (ti3, code2, table1) = (global_decl_tail ti2 table code1 (extractValue (tiHead ti1))) in
-    (ti3, code2, table1)
+    let ti1 = (type_name (currentToken, rest, cline)) in
+    let ti2 = (match ti1 "identifier") in
+    let (ti3, code1, table1) = (global_decl_tail ti2 table (extractValue (tiHead ti1))) in
+    (ti3, code1, table1)
   | otherwise = errorWithoutStackTrace ("Syntax Error: line " ++ (show cline) ++ ": Invalid declaration.")
 
 -- global_decl_tail -> id_list_tail ; | ( parameter_list ) func_tail
-global_decl_tail :: TokenIterator -> Table -> String -> String -> (TokenIterator, String, Table)
-global_decl_tail (currentToken, rest, cline) table typeNameCode idenValue
+global_decl_tail :: TokenIterator -> Table -> String -> (TokenIterator, String, Table)
+global_decl_tail (currentToken, rest, cline) table idenValue
   | (tokenType currentToken) `elem` (predict "id_list_tail") =
     let table1 = (addEntry table "global" idenValue) in
     let (ti1, table2) = (id_list_tail (currentToken, rest, cline) table1 "global") in
@@ -87,80 +155,80 @@ global_decl_tail (currentToken, rest, cline) table typeNameCode idenValue
     (ti2, "", table2)
   | (tokenType currentToken) == "(" =
     let ti1 = (match (currentToken, rest, cline) "(") in
-    let (Table lc (Temps (Counts c1 t1, _, _))) = table in
-    let table1 = (Table lc (Temps (Counts c1 t1, Counts 0 [], []))) in 
-    let (ti2, code1, table2) = (parameter_list ti1 table1) in
+    let (Table lc1 lc2 (Temps (cs1, _, _))) = table in
+    let table1 = (Table lc1 lc2 (Temps (cs1, Counts 0 [], Counts 0 []))) in 
+    let (ti2, table2) = (parameter_list ti1 table1) in
     let ti3 = (match ti2 ")") in
-    let (ti4, code2, table3) = (func_tail ti3 table2) in
-    (ti4, typeNameCode ++ " " ++ idenValue ++ "(" ++ code1 ++ ")" ++ code2, table3)
+    let (ti4, code1, table3) = (func_tail ti3 table2 idenValue) in
+    (ti4, code1, table3)
   | otherwise = errorWithoutStackTrace ("Syntax Error: line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
   
 -- func_tail -> ; | { data_decls statements }
-func_tail :: TokenIterator -> Table -> (TokenIterator, String, Table)
-func_tail (currentToken, rest, cline) table
+func_tail :: TokenIterator -> Table -> String -> (TokenIterator, String, Table)
+func_tail (currentToken, rest, cline) table idenValue
   | (tokenType currentToken) == ";" =
     let ti1 = (match (currentToken, rest, cline) ";") in
-    (ti1, ";\n", table)
+    (ti1, "\n", table)
   | (tokenType currentToken) == "{" =
     let ti1 = (match (currentToken, rest, cline) "{") in
     let (ti2, table1) = (data_decls ti1 table) in
     let (ti3, code1, table2) = (statements ti2 table1 []) in
     let ti4 = (match ti3 "}") in
-    (ti4, "{\n" ++ (programDecls table2 "local") ++ code1 ++ "}\n", table2)
+    (ti4, (prologue table2 idenValue) ++ (applyLocalCount table2 code1) ++ (epilogue table2 Nothing), table2)
   | otherwise = errorWithoutStackTrace ("Syntax Error: line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\". Expecting \";\" or \"{\"")
   
 -- type_name -> int | void
-type_name :: TokenIterator -> (TokenIterator, String)
+type_name :: TokenIterator -> TokenIterator
 type_name (currentToken, rest, cline)
   | (tokenType currentToken) == "int" =
     let ti1 = (match (currentToken, rest, cline) "int") in
-    (ti1, "int")
+    ti1
   | (tokenType currentToken) == "void" =
     let ti1 = (match (currentToken, rest, cline) "void") in
-    (ti1, "void")
+    ti1
   | otherwise = errorWithoutStackTrace ("Syntax Error: invalid type name at line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\". Expecting \"int\" or \"void\"")
   
 -- parameter_list -> ε | void parameter_list_tail | int identifier non_empty_parameter_list  
-parameter_list :: TokenIterator -> Table -> (TokenIterator, String, Table)
+parameter_list :: TokenIterator -> Table -> (TokenIterator, Table)
 parameter_list (currentToken, rest, cline) table
   | (tokenType currentToken) `elem` (parseTable "parameter_list" "FOLLOW") =
-    ((currentToken, rest, cline), "", table)
+    ((currentToken, rest, cline), table)
   | (tokenType currentToken) == "void" =
     let ti1 = (match (currentToken, rest, cline) "void") in
-    let (ti2, code1, table1) = (parameter_list_tail ti1 table "void") in
-    (ti2, "void" ++ code1, table1)
+    let (ti2, table1) = (parameter_list_tail ti1 table "void") in
+    (ti2, table1)
   | (tokenType currentToken) == "int" =
     let ti1 = (match (currentToken, rest, cline) "int") in
     let ti2 = (match ti1 "identifier") in
     let table1 = (addEntry table "param" (extractValue (tiHead ti1))) in
-    let (ti3, code1, table2) = (non_empty_parameter_list ti2 table1) in
-    (ti3, "int " ++ (extractValue (tiHead ti1)) ++ code1, table2)
+    let (ti3, table2) = (non_empty_parameter_list ti2 table1) in
+    (ti3, table2)
   | otherwise = errorWithoutStackTrace ("Syntax Error: invalid parameters at line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
   
 -- parameter_list_tail -> ε | identifier non_empty_parameter_list
-parameter_list_tail :: TokenIterator -> Table -> String -> (TokenIterator, String, Table)
+parameter_list_tail :: TokenIterator -> Table -> String -> (TokenIterator, Table)
 parameter_list_tail (currentToken, rest, cline) table typeNameCode
   | (tokenType currentToken) `elem` (parseTable "parameter_list_tail" "FOLLOW") =
-    ((currentToken, rest, cline), "", table)
+    ((currentToken, rest, cline), table)
   | (tokenType currentToken) == "identifier" =
     let ti1 = (match (currentToken, rest, cline) "identifier") in
     let table1 = (addEntry table "param" (extractValue currentToken)) in
-    let (ti2, code1, table2) = (non_empty_parameter_list ti1 table1) in
-    (ti2, (extractValue currentToken) ++ code1, table2)
+    let (ti2, table2) = (non_empty_parameter_list ti1 table1) in
+    (ti2, table2)
   | otherwise = errorWithoutStackTrace ("Syntax Error: invalid parameters at line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
 
 -- non_empty_parameter_list -> ε | , type_name identifier non_empty_parameter_list  
-non_empty_parameter_list :: TokenIterator -> Table -> (TokenIterator, String, Table)
+non_empty_parameter_list :: TokenIterator -> Table -> (TokenIterator, Table)
 non_empty_parameter_list (currentToken, rest, cline) table
   | (tokenType currentToken) `elem` (parseTable "non_empty_parameter_list" "FOLLOW") =
-    ((currentToken, rest, cline), "", table)
+    ((currentToken, rest, cline), table)
   | (tokenType currentToken) == "," =
     let ti1 = (match (currentToken, rest, cline) ",") in
-    let (ti2, code1) = (type_name ti1) in
+    let ti2 = (type_name ti1) in
     let ti3 = (match ti2 "identifier") in
     let table1 = (addEntry table "param" (extractValue (tiHead ti2))) in
-    let (ti4, code2, table2) = (non_empty_parameter_list ti3 table1) in
-    (ti3, ", " ++ code1 ++ " " ++ (extractValue (tiHead ti2)) ++ code2, table2)
+    let (ti4, table2) = (non_empty_parameter_list ti3 table1) in
+    (ti3, table2)
   | otherwise = errorWithoutStackTrace ("Syntax Error: invalid parameters at line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
   
 -- data_decls -> ε | type_name id_list ; data_decls
@@ -169,7 +237,7 @@ data_decls (currentToken, rest, cline) table
   | (tokenType currentToken) `elem` (parseTable "data_decls" "FOLLOW") =
     ((currentToken, rest, cline), table)
   | (tokenType currentToken) `elem` (predict "type_name") =
-    let (ti1, _) = (type_name (currentToken, rest, cline)) in
+    let ti1 = (type_name (currentToken, rest, cline)) in
     let (ti2, table1) = (id_list ti1 table) in
     let ti3 = (match ti2 ";") in
     let (ti4, table2) = (data_decls ti3 table1) in
@@ -275,14 +343,15 @@ assignment_or_general_func_call_tail (currentToken, rest, cline) table fn idenVa
     let ti1 = (match (currentToken, rest, cline) "=") in
     let (ti2, code1, table1, fn1) = (expression ti1 table fn) in
     let ti3 = (match ti2 ";") in
-    let named_var = (getVar table1 idenValue) in
+    let named_var = (getMemVar table1 idenValue) in
     (ti3, named_var ++ " = " ++ code1 ++ ";\n", table1, fn1)
   | (tokenType currentToken) == "(" =
     let ti1 = (match (currentToken, rest, cline) "(") in
-    let (ti2, code1, table1, fn1) = (expr_list ti1 table fn) in
+    let (ti2, varList1, table1, fn1) = (expr_list ti1 table fn) in
     let ti3 = (match ti2 ")") in
     let ti4 = (match ti3 ";") in
-    (ti4, idenValue ++ "(" ++ code1 ++ ");\n", table1, fn1)
+    let (table2, retLabel) = (getReturnLabel table1) in  
+    (ti4, (preJump retLabel varList1) ++ "goto " ++ idenValue ++ "Func;\n"  ++ (postJump retLabel Nothing), table2, fn1)
   | otherwise = errorWithoutStackTrace ("Syntax Error: line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\". Expecting \"=\" or \"(\"")
 
 -- printf_func_call -> printf ( STRING printf_func_call_tail   
@@ -327,34 +396,34 @@ scanf_func_call (currentToken, rest, cline) table fn
   | otherwise = errorWithoutStackTrace ("Syntax Error: invalid scanf call at line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
 
 -- expr_list -> ε | non_empty_expr_list  
-expr_list :: TokenIterator -> Table -> String -> (TokenIterator, String, Table, String)
+expr_list :: TokenIterator -> Table -> String -> (TokenIterator, [String], Table, String)
 expr_list (currentToken, rest, cline) table fn
   | (tokenType currentToken) `elem` (parseTable "expr_list" "FOLLOW") =
-    ((currentToken, rest, cline), "", table, fn)
+    ((currentToken, rest, cline), [], table, fn)
   | (tokenType currentToken) `elem` (predict "non_empty_expr_list") =
-    let (ti1, code1, table1, fn1) = (non_empty_expr_list (currentToken, rest, cline) table fn) in
-    (ti1, code1, table1, fn1)
+    let (ti1, varList1, table1, fn1) = (non_empty_expr_list (currentToken, rest, cline) table fn) in
+    (ti1, varList1, table1, fn1)
   | otherwise = errorWithoutStackTrace ("Syntax Error: invalid expression at line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
   
 -- non_empty_expr_list -> expression non_empty_expr_list_tail
-non_empty_expr_list :: TokenIterator -> Table -> String -> (TokenIterator, String, Table, String)
+non_empty_expr_list :: TokenIterator -> Table -> String -> (TokenIterator, [String], Table, String)
 non_empty_expr_list (currentToken, rest, cline) table fn
   | (tokenType currentToken) `elem` (predict "expression") =
     let (ti1, code1, table1, fn1) = (expression (currentToken, rest, cline) table fn) in
-    let (ti2, code2, table2, fn2) = (non_empty_expr_list_tail ti1 table1 fn1) in
-    (ti2, code1 ++ code2, table2, fn2)
+    let (ti2, varList1, table2, fn2) = (non_empty_expr_list_tail ti1 table1 fn1) in
+    (ti2, code1 : varList1, table2, fn2)
   | otherwise = errorWithoutStackTrace ("Syntax Error: invalid expression line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
   
 -- non_empty_expr_list_tail -> ε | , expression non_empty_expr_list_tail
-non_empty_expr_list_tail :: TokenIterator -> Table -> String -> (TokenIterator, String, Table, String)
+non_empty_expr_list_tail :: TokenIterator -> Table -> String -> (TokenIterator, [String], Table, String)
 non_empty_expr_list_tail (currentToken, rest, cline) table fn
   | (tokenType currentToken) == "," =
     let ti1 = (match (currentToken, rest, cline) ",") in
     let (ti2, code1, table1, fn1) = (expression ti1 table fn) in
-    let (ti3, code2, table2, fn2) = (non_empty_expr_list_tail ti2 table1 fn1) in
-    (ti3, ", " ++ code1 ++ code2, table2, fn2)
+    let (ti3, varList1, table2, fn2) = (non_empty_expr_list_tail ti2 table1 fn1) in
+    (ti3, code1 : varList1, table2, fn2)
   | (tokenType currentToken) `elem` (parseTable "non_empty_expr_list_tail" "FOLLOW") =
-    ((currentToken, rest, cline), "", table, fn)
+    ((currentToken, rest, cline), [], table, fn)
   | otherwise = errorWithoutStackTrace ("Syntax Error: invalid expression at line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
   
 -- if_statement -> if ( condition_expression ) block_statements if_statement_tail
@@ -376,7 +445,7 @@ if_statement_tail (currentToken, rest, cline) table false_label bc_label
   | (tokenType currentToken) == "else" =
     let ti1 = (match (currentToken, rest, cline) "else") in
     let (ti2, code1, table1) = (block_statements ti1 table bc_label) in
-    let (table2, else_label) = (getLabel table1) in
+    let (table2, else_label) = (getConditionalLabel table1) in
     (ti2, "goto " ++ else_label ++ ";\n" ++ false_label ++ ":;\n" ++ code1 ++ else_label ++ ":;\n", table2)
   | (tokenType currentToken) `elem` (parseTable "if_statement_tail" "FOLLOW") =
     ((currentToken, rest, cline), false_label ++ ":;\n", table)
@@ -386,8 +455,8 @@ if_statement_tail (currentToken, rest, cline) table false_label bc_label
 condition_expression :: TokenIterator -> Table -> String -> (TokenIterator, Table, String, String, String)
 condition_expression (currentToken, rest, cline) table fn
   | (tokenType currentToken) `elem` (predict "condition") =
-    let (table1, true_label) = (getLabel table) in
-    let (table2, false_label) = (getLabel table1) in
+    let (table1, true_label) = (getConditionalLabel table) in
+    let (table2, false_label) = (getConditionalLabel table1) in
     let (ti1, code1, table3, fn1) = (condition (currentToken, rest, cline) table2 fn) in
     let (ti2, table4, fn2) = (condition_expression_tail ti1 table3 fn1 code1 true_label false_label) in
     (ti2, table4, fn2, true_label, false_label)
@@ -397,7 +466,7 @@ condition_code :: Table -> String -> String -> String -> String -> String -> (Ta
 condition_code table condition_op_code fn condition_left true_label false_label
  | condition_op_code == "||" = (table, fn ++ "if(" ++ condition_left ++ ") goto " ++ true_label ++ ";\n")
  | condition_op_code == "&&" = 
-   let (table1, sc_label) = (getLabel table) in
+   let (table1, sc_label) = (getConditionalLabel table) in
    (table1, fn ++ "if(" ++ condition_left ++ ") goto " ++ sc_label ++ ";\n" ++
         "goto " ++ false_label ++ ";\n" ++ sc_label ++ ":;\n")
  
@@ -466,7 +535,7 @@ while_statement (currentToken, rest, cline) table fn
   | (tokenType currentToken) == "while" =
     let ti1 = (match (currentToken, rest, cline) "while") in
     let ti2 = (match ti1 "(") in
-    let (table1, begin_label) = (getLabel table) in
+    let (table1, begin_label) = (getConditionalLabel table) in
     let fn1 = (fn ++ begin_label ++ ":;\n") in
     let (ti3, table2, fn2, true_label, false_label) = (condition_expression ti2 table1 fn1) in
     let ti4 = (match ti3 ")") in
@@ -480,7 +549,7 @@ return_statement (currentToken, rest, cline) table fn
   | (tokenType currentToken) == "return" =
     let ti1 = (match (currentToken, rest, cline) "return") in
     let (ti2, code1, table1, fn1) = (return_statement_tail ti1 table fn) in
-    (ti2, "return " ++ code1, table1, fn1)
+    (ti2, code1, table1, fn1)
   | otherwise = errorWithoutStackTrace ("Syntax Error: invalid return statement at line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
 
 -- return_statement_tail -> expression ; | ;
@@ -489,10 +558,10 @@ return_statement_tail (currentToken, rest, cline) table fn
   | (tokenType currentToken) `elem` (predict "expression") =
     let (ti1, code1, table1, fn1) = (expression (currentToken, rest, cline) table fn) in
     let ti2 = (match ti1 ";") in
-    (ti2, code1 ++ ";\n", table1, fn1)
+    (ti2, epilogue table1 (Just code1), table1, fn1)
   | (tokenType currentToken) == ";" =
     let ti1 = (match (currentToken, rest, cline) ";") in
-    (ti1, ";\n", table, fn)
+    (ti1, epilogue table Nothing, table, fn)
   | otherwise = errorWithoutStackTrace ("Syntax Error: invalid return statement at line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
   
 -- break_statement -> break ;
@@ -501,7 +570,7 @@ break_statement (currentToken, rest, cline) table label
   | currentToken == "break" =
     let ti1 = (match (currentToken, rest, cline) "break") in
     let ti2 = (match ti1 ";") in
-    let code1 = (if null label then "" else ("goto " ++ (label !! 1) ++ ";\n")) in
+    let code1 = (if null label then "\n" else ("goto " ++ (label !! 1) ++ ";\n")) in
     (ti2, code1, table)
   | otherwise = errorWithoutStackTrace ("Syntax Error: invalid break statement at line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
   
@@ -511,7 +580,7 @@ continue_statement (currentToken, rest, cline) table label
   | currentToken == "continue" =
     let ti1 = (match (currentToken, rest, cline) "continue") in
     let ti2 = (match ti1 ";") in
-    let code1 = (if null label then "" else ("goto " ++ (label !! 0) ++ ";\n")) in
+    let code1 = (if null label then "\n" else ("goto " ++ (label !! 0) ++ ";\n")) in
     (ti2, code1, table)
   | otherwise = errorWithoutStackTrace ("Syntax Error: invalid continue statement at line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
 
@@ -612,15 +681,17 @@ factor (currentToken, rest, cline) table fn
 factor_tail :: TokenIterator -> Table -> String -> String -> (TokenIterator, String, Table, String)
 factor_tail (currentToken, rest, cline) table fn idenValue
   | (tokenType currentToken) `elem` (parseTable "factor_tail" "FOLLOW") =
-    let named_var = (getVar table idenValue) in
+    let named_var = (getMemVar table idenValue) in
     ((currentToken, rest, cline), named_var, table, fn)
   | (tokenType currentToken) == "(" =
     let ti1 = (match (currentToken, rest, cline) "(") in
-    let (ti2, code1, table1, fn1) = (expr_list ti1 table fn) in
+    let (ti2, varList1, table1, fn1) = (expr_list ti1 table fn) in
     let ti3 = (match ti2 ")") in
     let (table2, named_var) = (addTemp table1) in
-    let fn2 = (fn1 ++ named_var ++ " = " ++ idenValue ++ "(" ++ code1 ++ ");\n") in
-    (ti3, named_var, table2, fn2)
+    let (table3, retLabel) = (getReturnLabel table2) in
+    let code1 = ((preJump retLabel varList1) ++ "goto " ++ idenValue ++ "Func;\n" ++ (postJump retLabel (Just named_var))) in
+    let fn2 = (fn1 ++ code1) in
+    (ti3, named_var, table3, fn2)
   | otherwise = errorWithoutStackTrace ("Syntax Error: invalid expression at line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
   
 -- ghc --make translator
@@ -632,8 +703,8 @@ main = do
 -- Print comments
   putStrLn comments
 -- Init Symbol table
-  let symbolTable = Table 1 (Temps (Counts 0 [], Counts 0 [], []))
+  let symbolTable = Table 1 1 (Temps (Counts 0 [], Counts 0 [], Counts 0 []))
 -- Start parsing
   let (_, code, _) = program (nextToken tokens 1) symbolTable
 -- Print generated code 
-  putStrLn code
+  putStrLn (vonNeumannInitCode ++ code ++ vonNeumannExitCode)
