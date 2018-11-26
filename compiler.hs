@@ -19,6 +19,7 @@ getComments (_ : rest) = getComments rest
 
 type TokenIterator = (String, [Token], Int)
 
+-- Token iterator
 nextToken :: [Token] -> Int -> TokenIterator
 nextToken [] cline = ("EOF", [], cline)
 nextToken ((Comment c) : rest) cline = nextToken rest (cline+1)
@@ -172,8 +173,7 @@ data_decls (currentToken, rest, cline) table
     let (ti4, table2) = (data_decls ti3 table1) in
     (ti4, table2)
   | otherwise = errorWithoutStackTrace ("Syntax Error: line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
-                
-  
+
 -- id_list -> identifier id_list_tail
 id_list :: TokenIterator -> Table -> (TokenIterator, Table)
 id_list (currentToken, rest, cline) table
