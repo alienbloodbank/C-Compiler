@@ -1,13 +1,13 @@
 import Scanner
 import ParseTable
 import SymbolTable
-import FrameLayout
+import ProgramLayout
 
 import System.Exit
 import System.Environment
 
 {-
-Translator 
+Parser/Translator
 Author: Soubhk Ghosh
 11/19/2018
 -}
@@ -34,12 +34,6 @@ extractValue s = snd (splitAt 1 (dropWhile (/=' ') s))
 
 tiHead :: TokenIterator -> String
 tiHead (ti, tokens, cline) = ti
-
-{-
-printError :: String -> IO a
-printError text = do putStrLn text
-                    exitWith ExitSuccess   
--}
 
 tokenType :: String -> String
 tokenType = takeWhile (/=' ')

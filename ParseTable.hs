@@ -1,8 +1,8 @@
 module ParseTable (parseTable, predict) where
 
--- Check from list of eps non-terminals
+-- Check for eps non-terminals
 isEPS :: String -> Bool
-isEPS s = s `elem` ["program_data", 
+isEPS s = s `elem` ["program_data",
   "parameter_list",
   "parameter_list_tail",
   "non_empty_parameter_list",

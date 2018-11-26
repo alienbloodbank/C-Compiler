@@ -26,7 +26,7 @@ addTemp :: Table -> (Table, String)
 addTemp (Table lc1 lc2 (Temps (cs1, Counts c2 t2, cs3))) =
  (Table lc1 lc2 (Temps (cs1, Counts (c2 + 1) t2, cs3)), "mem[fp + " ++ (show c2) ++ "]")
 
--- Get corresponding memory for the variable/identifier in order of param -> local -> global
+-- Get corresponding stack memory location for the variable/identifier in the priority of param -> local -> global
 getMemVar :: Table -> String -> String
 getMemVar (Table _ _ (Temps (Counts c1 t1, Counts c2 t2, Counts c3 t3))) value
  | any (checkup value) t3 =
@@ -40,8 +40,3 @@ getMemVar (Table _ _ (Temps (Counts c1 t1, Counts c2 t2, Counts c3 t3))) value
    "mem[" ++ (show index) ++ "]"
  where checkup v (a, b) = if a == v then True else False
 
--- Get the count of variables/temporaries in the given scope
--- getDeclsCount :: Table -> String -> Int
--- getDeclsCount (Table _ _ (Temps (Counts c1 t1, Counts c2 t2, _))) scope
---  | scope == "global" = c1
--- | scope == "local" = c2
