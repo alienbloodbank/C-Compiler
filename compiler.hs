@@ -1,8 +1,10 @@
 import Scanner
 import ParseTable
-import System.Environment
 import SymbolTable
+import FrameLayout
+
 import System.Exit
+import System.Environment
 
 {-
 Translator 
@@ -42,73 +44,6 @@ printError text = do putStrLn text
 tokenType :: String -> String
 tokenType = takeWhile (/=' ')
 
--- vonNeumannInitCode :: String
-vonNeumannInitCode = "#define N 20000\n" ++
-                     "int sp, fp, r1, r2, r3;\n" ++
-                     "int mem[N];\n\n" ++
-                     "int main() {\n"
-
--- vonNeumannExitCode :: String
-vonNeumannExitCode = "mainReturn:;\n" ++
-                     "return mem[fp - 1];\n}\n"
-
-initRegistersAndGlobalData :: Table -> String
-initRegistersAndGlobalData (Table _ _ (Temps (Counts c1 _, _, _))) = "fp = 2 + " ++ (show c1) ++ ";\n" ++
-                                                                     "sp = 2 + " ++ (show c1) ++ ";\n" ++
-                                                                     "mem[fp - 2] = &&mainReturn;\n" ++
-                                                                     "goto mainFunc;\n"
-
--- initJumptableData :: Table -> String
--- initJumptableData (Table _ lc2 (Temps (Counts c1 _, _, _))) = concat ["mem[" ++ (show (c1 + i - 1)) ++ 
---                                                                "] = &&454RETLABEL" ++ (show i) ++ ";\n" | i <- [1..lc2]]
-
--- helper
-replStr :: String -> String -> String -> String
-replStr str old new = foldl ((\newSub before after -> before ++ newSub ++ after) new) firstChunk otherChunks
-                      where chunks = splitStr str old
-                            firstChunk = head chunks
-                            otherChunks = tail chunks
-
-splitStr str sub = mkChunkLst str sub []
-    where
-      -- mkChunkLst 'src string' 'substr-to-extract' 'list of chunks'
-      -- makes list of chunks located between 'substr-to-extract' pieces in src string
-      mkChunkLst [] _ chunkLst = chunkLst
-      mkChunkLst str sub chunkLst = mkChunkLst after sub (chunkLst ++ [chunk])
-          where (chunk, _, after) = takeOut str sub [] []
-
-takeOut after [] before match = (before, match, after)
-takeOut [] _ before match = (before, match, [])
-takeOut (x:xs) (y:ys) before match
-       | x == y = takeOut xs ys before (match ++ [x])
-       | otherwise = takeOut xs (y:ys) (before ++ [x]) []
-
-prologue :: Table -> String -> String
-prologue (Table _ _ (Temps (_, Counts c2 _, _))) idenValue = idenValue ++ "Func:;\n" ++
-                                                             "fp = sp;\n" ++
-                                                             "sp = fp + " ++ (show c2) ++ ";\n"
-
-epilogue :: Table -> Maybe String -> String
-epilogue table s = (if s == Nothing then "\n" else ("mem[fp - 1] = " ++ (let (Just id) = s in id) ++ ";\n")) ++
-                   "sp = fp;\n" ++
-                   "goto *mem[fp - 2];\n"
-
-preJump :: String -> [String] -> String
-preJump label varList = (concat (zipWith (\x y -> "mem[sp + " ++ (show x) ++ "] = " ++ y ++ ";\n") [0..] varList)) ++
-                        (if null varList then "\n" else "sp = sp + " ++ (show (length varList)) ++ ";\n") ++
-                        "mem[sp] = fp;\n" ++
-                        "mem[sp + 1] = &&" ++ label ++ ";\n" ++
-                        "sp = sp + 3;\n"
-
-postJump :: String -> Maybe String -> String
-postJump label s = label ++ ":;\n" ++
-                   "fp = mem[sp - 3];\n" ++
-                   (if s == Nothing then "\n" else ((let (Just id) = s in id) ++ " = mem[sp - 1];\n")) ++
-                   "sp = fp + $LOCAL_COUNT$;\n"
-
-applyLocalCount :: Table -> String -> String
-applyLocalCount (Table _ _ (Temps (_, Counts c2 _, _))) code = (replStr code "$LOCAL_COUNT$" (show c2))
-
 -- Token consumer
 match :: TokenIterator -> String -> TokenIterator
 match (currentToken, rest, cline) expected
@@ -121,7 +56,7 @@ program (currentToken, rest, cline) table
   | (tokenType currentToken) `elem` (predict "program_data") = 
     let (ti1, code1, table1) = (program_data (currentToken, rest, cline) table) in
     let ti2 = (match ti1 "EOF") in
-    (ti2, (initRegistersAndGlobalData table1) ++ code1, table1)
+    (ti2, (vonNeumannCode table1 code1), table1)
   | otherwise = errorWithoutStackTrace ("Syntax Error: line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
 
 -- program_data -> ε | global_decl program_data
@@ -174,7 +109,7 @@ func_tail (currentToken, rest, cline) table idenValue
     let (ti2, table1) = (data_decls ti1 table) in
     let (ti3, code1, table2) = (statements ti2 table1 []) in
     let ti4 = (match ti3 "}") in
-    (ti4, (prologue table2 idenValue) ++ (applyLocalCount table2 code1) ++ (epilogue table2 Nothing), table2)
+    (ti4, (prologue table2 idenValue) ++ (funcTailCode table2 code1), table2)
   | otherwise = errorWithoutStackTrace ("Syntax Error: line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\". Expecting \";\" or \"{\"")
   
 -- type_name -> int | void
@@ -558,10 +493,10 @@ return_statement_tail (currentToken, rest, cline) table fn
   | (tokenType currentToken) `elem` (predict "expression") =
     let (ti1, code1, table1, fn1) = (expression (currentToken, rest, cline) table fn) in
     let ti2 = (match ti1 ";") in
-    (ti2, epilogue table1 (Just code1), table1, fn1)
+    (ti2, epilogue (Just code1), table1, fn1)
   | (tokenType currentToken) == ";" =
     let ti1 = (match (currentToken, rest, cline) ";") in
-    (ti1, epilogue table Nothing, table, fn)
+    (ti1, epilogue Nothing, table, fn)
   | otherwise = errorWithoutStackTrace ("Syntax Error: invalid return statement at line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
   
 -- break_statement -> break ;
@@ -705,6 +640,7 @@ main = do
 -- Init Symbol table
   let symbolTable = Table 1 1 (Temps (Counts 0 [], Counts 0 [], Counts 0 []))
 -- Start parsing
-  let (_, code, _) = program (nextToken tokens 1) symbolTable
+  let (_, programCode, _) = program (nextToken tokens 1) symbolTable
 -- Print generated code 
-  putStrLn (vonNeumannInitCode ++ code ++ vonNeumannExitCode)
+  putStrLn programCode
+
