@@ -22,9 +22,9 @@ type TokenIterator = (String, [Token], Int)
 -- Token iterator
 nextToken :: [Token] -> Int -> TokenIterator
 nextToken [] cline = ("EOF", [], cline)
-nextToken ((Comment c) : rest) cline = nextToken rest (cline+1)
+nextToken ((Comment c) : rest) cline = nextToken rest (cline + 1)
 nextToken ((Reserved r) : rest) cline = (r, rest, cline)
-nextToken ((Symbol "\n") : rest) cline = nextToken rest (cline+1)
+nextToken ((Symbol "\n") : rest) cline = nextToken rest (cline + 1)
 nextToken ((Symbol s) : rest) cline = (s, rest, cline)
 nextToken ((Number s) : rest) cline = ("number " ++ s, rest, cline)
 nextToken ((String s) : rest) cline = ("string " ++ s, rest, cline)
@@ -391,20 +391,17 @@ condition_expression (currentToken, rest, cline) table fn
     (ti2, table4, fn2, true_label, false_label)
   | otherwise = errorWithoutStackTrace ("Syntax Error: invalid condition expression at line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
 
-condition_code :: Table -> String -> String -> String -> String -> String -> (Table, String)
-condition_code table condition_op_code fn condition_left true_label false_label
- | condition_op_code == "||" = (table, fn ++ "if(" ++ condition_left ++ ") goto " ++ true_label ++ ";\n")
- | condition_op_code == "&&" = 
-   let (table1, sc_label) = (getConditionalLabel table) in
-   (table1, fn ++ "if(" ++ condition_left ++ ") goto " ++ sc_label ++ ";\n" ++
-        "goto " ++ false_label ++ ";\n" ++ sc_label ++ ":;\n")
- 
 -- condition_expression_tail -> ε | condition_op condition
 condition_expression_tail :: TokenIterator -> Table -> String -> String -> String -> String -> (TokenIterator, Table, String)
 condition_expression_tail (currentToken, rest, cline) table fn condition_left true_label false_label
   | (tokenType currentToken) `elem` (predict "condition_op") =
     let (ti1, code1) = (condition_op (currentToken, rest, cline)) in 
-    let (table1, fn1) = (condition_code table code1 fn condition_left true_label false_label) in
+    let (table1, fn1) = (conditionCode table code1 fn condition_left true_label false_label)
+         where conditionCode table condition_op_code fn condition_left true_label false_label
+                | condition_op_code == "||" = (table, fn ++ "if(" ++ condition_left ++ ") goto " ++ true_label ++ ";\n")
+                | condition_op_code == "&&" = (table1, fn ++ "if(" ++ condition_left ++ ") goto " ++ sc_label ++ ";\n" ++
+                                              "goto " ++ false_label ++ ";\n" ++ sc_label ++ ":;\n")
+                                                where (table1, sc_label) = (getConditionalLabel table) in
     let (ti2, code2, table2, fn2) = (condition ti1 table1 fn1) in
     (ti2, table2, fn2 ++ "if(" ++ code2 ++ ")" ++ " goto " ++ true_label ++ ";\n" ++
     "goto " ++ false_label ++ ";\n")
@@ -499,7 +496,9 @@ break_statement (currentToken, rest, cline) table label
   | currentToken == "break" =
     let ti1 = (match (currentToken, rest, cline) "break") in
     let ti2 = (match ti1 ";") in
-    let code1 = (if null label then "\n" else ("goto " ++ (label !! 1) ++ ";\n")) in
+    let code1 = (breakCode label)
+         where breakCode [] = "\n"
+               breakCode label = "goto " ++ (label !! 1) ++ ";\n" in
     (ti2, code1, table)
   | otherwise = errorWithoutStackTrace ("Syntax Error: invalid break statement at line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
   
@@ -509,7 +508,9 @@ continue_statement (currentToken, rest, cline) table label
   | currentToken == "continue" =
     let ti1 = (match (currentToken, rest, cline) "continue") in
     let ti2 = (match ti1 ";") in
-    let code1 = (if null label then "\n" else ("goto " ++ (label !! 0) ++ ";\n")) in
+    let code1 = (continueCode label)
+         where continueCode [] = "\n"
+               continueCode label = "goto " ++ (label !! 0) ++ ";\n" in
     (ti2, code1, table)
   | otherwise = errorWithoutStackTrace ("Syntax Error: invalid continue statement at line " ++ (show cline) ++ ": unexpected token " ++ "\"" ++ currentToken ++ "\"")
 
