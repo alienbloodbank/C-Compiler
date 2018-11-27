@@ -63,19 +63,25 @@ tokenize ('^':r) = (Symbol "^") : (tokenize r)
 tokenize ('~':r) = (Symbol "~") : (tokenize r)
 tokenize ('?':r) = (Symbol "?") : (tokenize r)
 tokenize ('\\':r) = (Symbol "\\") : (tokenize r)
-tokenize (h:t) = if isDigit h then scanNum (Number [h]) t else
-                                                            if (isLetter h) then scanIdent (Identifier [h]) t else tokenize t
+tokenize (h:t)
+ | isDigit h = scanNum (Number [h]) t
+ | isLetter h = scanIdent (Identifier [h]) t
+ | otherwise = tokenize t
 tokenize "" = []
 
 --Takes a number token and a string and appends the remaining digits to the token, it then calls tokenize to generate the remaining token list
 scanNum :: Token -> String -> [Token]
-scanNum (Number n) (h:t) = if isDigit h then scanNum (Number (n++[h])) t else
-                                                                          if isLetter h then errorWithoutStackTrace "Scan Error: Malformed Number Token"  else (Number n) : (tokenize (h:t))
+scanNum (Number n) (h:t)
+ | isDigit h = scanNum (Number (n++[h])) t
+ | isLetter h = errorWithoutStackTrace "Scan Error: Malformed Number Token"
+ | otherwise = (Number n) : (tokenize (h:t))
 
 --Takes an identifier token and a string and appends the remaining characters of the identifier to the token, it then calls tokenize to generate the remaining token list
 scanIdent :: Token -> String  -> [Token]
 scanIdent (Identifier s) ('_':t) = scanIdent (Identifier (s++"_")) t
-scanIdent (Identifier s) (h:t) = if (||) (isDigit h) (isLetter h) then scanIdent (Identifier (s++[h])) t else (Identifier s) : (tokenize (h:t))
+scanIdent (Identifier s) (h:t)
+ | (||) (isDigit h) (isLetter h) = scanIdent (Identifier (s++[h])) t
+ | otherwise = (Identifier s) : (tokenize (h:t))
 
 --Takes a character and a string and generates the "equal" version as necessary (i.e. < vs. <=), it then calls tokenize to generate the remaining token list
 scanEqual :: Char -> String  -> [Token]

@@ -15,11 +15,14 @@ getReturnLabel :: Table -> (Table, String)
 getReturnLabel (Table lc1 lc2 t) = ((Table lc1 (lc2 + 1) t), "RETLABEL454" ++ (show lc2))
 
 -- Add a variable/identifier to the current scope in the symbol table
-addEntry :: Table -> String -> String -> Table
-addEntry (Table lc1 lc2 (Temps (Counts c1 t1, Counts c2 t2, Counts c3 t3))) scope value
- | scope == "global" = (Table lc1 lc2 (Temps (Counts (c1 + 1) ((value, c1) : t1), Counts c2 t2, Counts c3 t3)))
- | scope == "local" = (Table lc1 lc2 (Temps (Counts c1 t1, Counts (c2 + 1) ((value, c2) : t2), Counts c3 t3)))
- | scope == "param" = (Table lc1 lc2 (Temps (Counts c1 t1, Counts c2 t2, Counts (c3 + 1) ((value, c3) : t3))))
+addEntry :: Table -> String -> String -> String -> Table
+addEntry (Table lc1 lc2 (Temps (Counts c1 t1, Counts c2 t2, Counts c3 t3))) scope value cline
+ | (&&) (scope == "global") (all (checkup value) t1) = (Table lc1 lc2 (Temps (Counts (c1 + 1) ((value, c1) : t1), Counts c2 t2, Counts c3 t3)))
+ | (all (checkup value) (t2 ++ t3)) =
+    case scope of "local" -> (Table lc1 lc2 (Temps (Counts c1 t1, Counts (c2 + 1) ((value, c2) : t2), Counts c3 t3)))
+                  "param" -> (Table lc1 lc2 (Temps (Counts c1 t1, Counts c2 t2, Counts (c3 + 1) ((value, c3) : t3))))
+ | otherwise = errorWithoutStackTrace ("Semantic Error: line " ++ cline ++ ": '" ++ value ++ "' redeclared as different kind of symbol")
+ where checkup v (a, _) = a /= v
 
 -- Add a local temporary in the symbol table
 addTemp :: Table -> (Table, String)
@@ -27,8 +30,8 @@ addTemp (Table lc1 lc2 (Temps (cs1, Counts c2 t2, cs3))) =
  (Table lc1 lc2 (Temps (cs1, Counts (c2 + 1) t2, cs3)), "mem[fp + " ++ (show c2) ++ "]")
 
 -- Get corresponding stack memory location for the variable/identifier in the priority of param -> local -> global
-getMemVar :: Table -> String -> String
-getMemVar (Table _ _ (Temps (Counts c1 t1, Counts c2 t2, Counts c3 t3))) value
+getMemVar :: Table -> String -> String -> String
+getMemVar (Table _ _ (Temps (Counts c1 t1, Counts c2 t2, Counts c3 t3))) value cline
  | any (checkup value) t3 =
    let (Just (_, index)) = find (checkup value) t3 in
    "mem[fp - 3 - " ++ (show (c3 - index)) ++ "]"
@@ -38,5 +41,6 @@ getMemVar (Table _ _ (Temps (Counts c1 t1, Counts c2 t2, Counts c3 t3))) value
  | any (checkup value) t1 =
    let (Just (_, index)) = find (checkup value) t1 in
    "mem[" ++ (show index) ++ "]"
- where checkup v (a, b) = if a == v then True else False
+ | otherwise = errorWithoutStackTrace ("Semantic Error: line " ++ cline ++ ": '" ++ value ++ "' undeclared (first use in this function)")
+ where checkup v (a, _) = a == v
 

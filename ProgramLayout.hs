@@ -2,7 +2,7 @@ module ProgramLayout (vonNeumannCode, prologue, epilogue, preJump, postJump, fun
 
 import SymbolTable
 
-import Data.List
+import Data.List (isSuffixOf)
 
 -- Helper functions for replacing multiple occurences within a string
 -- https://groups.google.com/forum/#!topic/fa.haskell/2qEeVHFAIUk
