@@ -5,6 +5,7 @@ import ProgramLayout
 
 import System.Environment (getArgs)
 import Data.List (intercalate)
+import Data.Map as Map
 
 {-
 Parser/Translator
@@ -31,7 +32,7 @@ nextToken ((String s) : rest) cline = ("string " ++ s, rest, cline)
 nextToken ((Identifier s) : rest) cline = ("identifier " ++ s, rest, cline)
 
 extractValue :: String -> String
-extractValue s = snd (splitAt 1 (dropWhile (/=' ') s))
+extractValue s = snd (Prelude.splitAt 1 (dropWhile (/=' ') s))
 
 tiHead :: TokenIterator -> String
 tiHead (ti, tokens, cline) = ti
@@ -41,7 +42,7 @@ tokenType = takeWhile (/=' ')
 
 reportError :: [String] -> String -> String -> error
 reportError tokList cline expected = errorWithoutStackTrace ("Syntax Error: line " ++ cline ++
-                                     ": expected " ++ (intercalate ", " (map (\x -> "'" ++ x ++ "'") tokList)) ++
+                                     ": expected " ++ (intercalate ", " (Prelude.map (\x -> "'" ++ x ++ "'") tokList)) ++
                                      " before " ++ expected)
 
 -- Token consumer
@@ -91,7 +92,7 @@ global_decl_tail (currentToken, rest, cline) table idenValue
   | (tokenType currentToken) == "(" =
     let ti1 = (match (currentToken, rest, cline) "(") in
     let (Table lc1 lc2 (Temps (cs1, _, _))) = table in
-    let table1 = (Table lc1 lc2 (Temps (cs1, Counts 0 [], Counts 0 []))) in 
+    let table1 = (Table lc1 lc2 (Temps (cs1, Counts 0 Map.empty, Counts 0 Map.empty))) in
     let (ti2, table2) = (parameter_list ti1 table1) in
     let ti3 = (match ti2 ")") in
     let (ti4, code1, table3) = (func_tail ti3 table2 idenValue) in
@@ -631,14 +632,14 @@ factor_tail (currentToken, rest, cline) table fn idenValue
   
 -- ghc --make translator
 main = do
-  (inputFile:args) <- getArgs
+  (inputFile : _) <- getArgs
   tokens <- scan inputFile
--- Get comments
-  let comments = unlines (getComments tokens)
 -- Init Symbol table
-  let symbolTable = Table 1 1 (Temps (Counts 0 [], Counts 0 [], Counts 0 []))
+  let symbolTable = Table 1 1 (Temps (Counts 0 Map.empty, Counts 0 Map.empty, Counts 0 Map.empty))
 -- Start parsing
   let (_, programCode, _) = program (nextToken tokens 1) symbolTable
+-- Get comments
+  let comments = unlines (getComments tokens)
 -- Print comments
   putStrLn comments
 -- Print generated code 
