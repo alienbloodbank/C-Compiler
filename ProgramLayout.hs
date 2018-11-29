@@ -1,26 +1,6 @@
-module ProgramLayout (vonNeumannCode, prologue, epilogue, preJump, postJump, funcTailCode) where
+module ProgramLayout where
 
 import SymbolTable
-
-import Data.List (isSuffixOf)
-
--- Helper functions for replacing multiple occurences within a string
--- https://groups.google.com/forum/#!topic/fa.haskell/2qEeVHFAIUk
-replStr :: String -> String -> String -> String
-replStr str old new = foldl ((\newSub before after -> before ++ newSub ++ after) new) firstChunk otherChunks
-  where chunks = splitStr str old
-        firstChunk = head chunks
-        otherChunks = tail chunks
-        splitStr str sub = mkChunkLst str sub []      
-        mkChunkLst [] _ chunkLst = chunkLst
-        mkChunkLst str sub chunkLst = mkChunkLst after sub (chunkLst ++ [chunk])
-         where (chunk, _, after) = takeOut str sub [] []
-
-takeOut after [] before match = (before, match, after)
-takeOut [] _ before match = (before, match, [])
-takeOut (x:xs) (y:ys) before match
-  | x == y = takeOut xs ys before (match ++ [x])
-  | otherwise = takeOut xs (y:ys) (before ++ [x]) []
 
 -- Initialize registers and fix stack memory size
 -- The stack here grows towards higher indices of the stack memory
@@ -82,11 +62,4 @@ postJump (Table _ _ (Temps (_, Counts c2 _, _))) label retMem = label ++ ":;\n" 
                         "sp = fp + " ++ (show c2) ++ ";\n"
   where retValCode Nothing = "\n"
         retValCode (Just id) = id ++ " = mem[sp - 1];\n"
-
--- Replace the temporary string with the local variable count.
--- This method also adds the callee epilogue code incase the programmer hasn't explicitly added the return statement
-funcTailCode :: String -> String
-funcTailCode code
-  | "*mem[fp - 2];\n" `isSuffixOf` code = code ++ "\n"
-  | otherwise = code ++ (epilogue Nothing)
 

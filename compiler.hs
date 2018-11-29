@@ -4,7 +4,7 @@ import SymbolTable
 import ProgramLayout
 
 import System.Environment (getArgs)
-import Data.List (intercalate)
+import Data.List (intercalate, isSuffixOf)
 import Data.Map as Map
 
 {-
@@ -39,6 +39,16 @@ tiHead (ti, tokens, cline) = ti
 
 tokenType :: String -> String
 tokenType = takeWhile (/=' ')
+
+-- Update stack pointer whenever a temporary is created
+growStackFromTemp :: Table -> String
+growStackFromTemp (Table _ _ (Temps (_, Counts c2 _, _))) = "sp = fp + " ++ (show c2) ++ ";\n"
+
+-- Adds the callee epilogue code incase the programmer hasn't explicitly added the return statement
+funcTailCode :: String -> String
+funcTailCode code
+  | "*mem[fp - 2];\n" `isSuffixOf` code = code ++ "\n"
+  | otherwise = code ++ (epilogue Nothing)
 
 reportError :: [String] -> String -> String -> error
 reportError tokList cline expected = errorWithoutStackTrace ("Syntax Error: line " ++ cline ++
@@ -540,7 +550,7 @@ expression_tail (currentToken, rest, cline) table fn et_left
                   "r2 = " ++ code2 ++ ";\n" ++
                   "r3 = r1" ++ code1 ++ "r2;\n" ++
                   et_place ++ " = r3;\n" in
-    let fn2 = (fn1 ++ "sp = sp + 1;\n" ++ regCode) in
+    let fn2 = (fn1 ++ (growStackFromTemp table2) ++ regCode) in
     let (ti3, code3, table3, fn3) = (expression_tail ti2 table2 fn2 et_place) in
     (ti3, code3, table3, fn3)
   | (tokenType currentToken) `elem` (parseTable "expression_tail" "FOLLOW") =
@@ -578,7 +588,7 @@ term_tail (currentToken, rest, cline) table fn tt_left
                   "r2 = " ++ code2 ++ ";\n" ++
                   "r3 = r1" ++ code1 ++ "r2;\n" ++
                   tt_place ++ " = r3;\n" in
-    let fn2 = (fn1 ++ "sp = sp + 1;\n" ++ regCode) in
+    let fn2 = (fn1 ++ (growStackFromTemp table2) ++ regCode) in
     let (ti3, code3, table3, fn3) = (term_tail ti2 table2 fn2 tt_place) in
     (ti3, code3, table3, fn3)
   | (tokenType currentToken) `elem` (parseTable "term_tail" "FOLLOW") =
@@ -606,13 +616,13 @@ factor (currentToken, rest, cline) table fn
   | (tokenType currentToken) == "number" =
     let ti1 = (match (currentToken, rest, cline) "number") in
     let (table1, named_var) = (addTemp table) in
-    let fn1 = (fn ++ "sp = sp + 1;\n" ++ named_var ++ " = " ++ (extractValue currentToken) ++ ";\n") in
+    let fn1 = (fn ++ (growStackFromTemp table1) ++ named_var ++ " = " ++ (extractValue currentToken) ++ ";\n") in
     (ti1, named_var, table1, fn1)
   | (tokenType currentToken) == "-" =
     let ti1 = (match (currentToken, rest, cline) "-") in
     let ti2 = (match ti1 "number") in
     let (table1, named_var) = (addTemp table) in
-    let fn1 = (fn ++ "sp = sp + 1;\n" ++ named_var ++ " = " ++ "-" ++ (extractValue (tiHead ti1)) ++ ";\n") in
+    let fn1 = (fn ++ (growStackFromTemp table1) ++ named_var ++ " = " ++ "-" ++ (extractValue (tiHead ti1)) ++ ";\n") in
     (ti2, named_var, table1, fn1)
   | (tokenType currentToken) == "(" =
     let ti1 = (match (currentToken, rest, cline) "(") in
@@ -634,7 +644,7 @@ factor_tail (currentToken, rest, cline) table fn idenValue
     let (table2, named_var) = (addTemp table1) in
     let (table3, retLabel) = (getReturnLabel table2) in
     let code1 = ((preJump retLabel varList1) ++ "goto " ++ idenValue ++ "Func;\n" ++ (postJump table3 retLabel (Just named_var))) in
-    let fn2 = (fn1 ++ "sp = sp + 1;\n" ++ code1) in
+    let fn2 = (fn1 ++ (growStackFromTemp table3) ++ code1) in
     (ti3, named_var, table3, fn2)
   | otherwise = (reportError (predict "factor_tail") (show cline) currentToken)
   
