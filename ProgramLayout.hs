@@ -75,19 +75,18 @@ preJump label varList = (concat (zipWith assignParamsCode [0..] varList)) ++
 -- Caller post-jump code generator
 -- When we generate post-jump code, we don't know how many local variables will be there yet after callee returns.
 -- Hence we add a temporary string "$LOCAL_COUNT$" that is replaced after the complete function defintion is parsed and analysed.
-postJump :: String -> Maybe String -> String
-postJump label retMem = label ++ ":;\n" ++
+postJump :: Table -> String -> Maybe String -> String
+postJump (Table _ _ (Temps (_, Counts c2 _, _))) label retMem = label ++ ":;\n" ++
                         "fp = mem[sp - 3];\n" ++
                         (retValCode retMem) ++
-                        "sp = fp + $LOCAL_COUNT$;\n"
+                        "sp = fp + " ++ (show c2) ++ ";\n"
   where retValCode Nothing = "\n"
         retValCode (Just id) = id ++ " = mem[sp - 1];\n"
 
 -- Replace the temporary string with the local variable count.
 -- This method also adds the callee epilogue code incase the programmer hasn't explicitly added the return statement
-funcTailCode :: Table -> String -> String
-funcTailCode (Table _ _ (Temps (_, Counts c2 _, _))) code = (replStr code "$LOCAL_COUNT$" (show c2)) ++ (retValCode code)
- where retValCode code
-        | "*mem[fp - 2];\n" `isSuffixOf` code = "\n"
-        | otherwise = (epilogue Nothing)
+funcTailCode :: String -> String
+funcTailCode code
+  | "*mem[fp - 2];\n" `isSuffixOf` code = code ++ "\n"
+  | otherwise = code ++ (epilogue Nothing)
 

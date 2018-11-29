@@ -110,7 +110,7 @@ func_tail (currentToken, rest, cline) table idenValue
     let (ti2, table1) = (data_decls ti1 table) in
     let (ti3, code1, table2) = (statements ti2 table1 []) in
     let ti4 = (match ti3 "}") in
-    (ti4, (prologue table2 idenValue) ++ (funcTailCode table2 code1), table2)
+    (ti4, (prologue table1 idenValue) ++ (funcTailCode code1), table2)
   | otherwise = (reportError (predict "func_tail") (show cline) currentToken)
   
 -- type_name -> int | void
@@ -286,7 +286,7 @@ assignment_or_general_func_call_tail (currentToken, rest, cline) table fn idenVa
     let ti3 = (match ti2 ")") in
     let ti4 = (match ti3 ";") in
     let (table2, retLabel) = (getReturnLabel table1) in  
-    (ti4, (preJump retLabel varList1) ++ "goto " ++ idenValue ++ "Func;\n"  ++ (postJump retLabel Nothing), table2, fn1)
+    (ti4, (preJump retLabel varList1) ++ "goto " ++ idenValue ++ "Func;\n"  ++ (postJump table2 retLabel Nothing), table2, fn1)
   | otherwise = (reportError (predict "assignment_or_general_func_call_tail") (show cline) currentToken)
 
 -- printf_func_call -> printf ( STRING printf_func_call_tail   
@@ -540,7 +540,7 @@ expression_tail (currentToken, rest, cline) table fn et_left
                   "r2 = " ++ code2 ++ ";\n" ++
                   "r3 = r1" ++ code1 ++ "r2;\n" ++
                   et_place ++ " = r3;\n" in
-    let fn2 = (fn1 ++ regCode) in
+    let fn2 = (fn1 ++ "sp = sp + 1;\n" ++ regCode) in
     let (ti3, code3, table3, fn3) = (expression_tail ti2 table2 fn2 et_place) in
     (ti3, code3, table3, fn3)
   | (tokenType currentToken) `elem` (parseTable "expression_tail" "FOLLOW") =
@@ -578,7 +578,7 @@ term_tail (currentToken, rest, cline) table fn tt_left
                   "r2 = " ++ code2 ++ ";\n" ++
                   "r3 = r1" ++ code1 ++ "r2;\n" ++
                   tt_place ++ " = r3;\n" in
-    let fn2 = (fn1 ++ regCode) in
+    let fn2 = (fn1 ++ "sp = sp + 1;\n" ++ regCode) in
     let (ti3, code3, table3, fn3) = (term_tail ti2 table2 fn2 tt_place) in
     (ti3, code3, table3, fn3)
   | (tokenType currentToken) `elem` (parseTable "term_tail" "FOLLOW") =
@@ -606,13 +606,13 @@ factor (currentToken, rest, cline) table fn
   | (tokenType currentToken) == "number" =
     let ti1 = (match (currentToken, rest, cline) "number") in
     let (table1, named_var) = (addTemp table) in
-    let fn1 = (fn ++ named_var ++ " = " ++ (extractValue currentToken) ++ ";\n") in
+    let fn1 = (fn ++ "sp = sp + 1;\n" ++ named_var ++ " = " ++ (extractValue currentToken) ++ ";\n") in
     (ti1, named_var, table1, fn1)
   | (tokenType currentToken) == "-" =
     let ti1 = (match (currentToken, rest, cline) "-") in
     let ti2 = (match ti1 "number") in
     let (table1, named_var) = (addTemp table) in
-    let fn1 = (fn ++ named_var ++ " = " ++ "-" ++ (extractValue (tiHead ti1)) ++ ";\n") in
+    let fn1 = (fn ++ "sp = sp + 1;\n" ++ named_var ++ " = " ++ "-" ++ (extractValue (tiHead ti1)) ++ ";\n") in
     (ti2, named_var, table1, fn1)
   | (tokenType currentToken) == "(" =
     let ti1 = (match (currentToken, rest, cline) "(") in
@@ -633,8 +633,8 @@ factor_tail (currentToken, rest, cline) table fn idenValue
     let ti3 = (match ti2 ")") in
     let (table2, named_var) = (addTemp table1) in
     let (table3, retLabel) = (getReturnLabel table2) in
-    let code1 = ((preJump retLabel varList1) ++ "goto " ++ idenValue ++ "Func;\n" ++ (postJump retLabel (Just named_var))) in
-    let fn2 = (fn1 ++ code1) in
+    let code1 = ((preJump retLabel varList1) ++ "goto " ++ idenValue ++ "Func;\n" ++ (postJump table3 retLabel (Just named_var))) in
+    let fn2 = (fn1 ++ "sp = sp + 1;\n" ++ code1) in
     (ti3, named_var, table3, fn2)
   | otherwise = (reportError (predict "factor_tail") (show cline) currentToken)
   
