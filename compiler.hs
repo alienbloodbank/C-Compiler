@@ -536,7 +536,11 @@ expression_tail (currentToken, rest, cline) table fn et_left
     let (ti1, code1) = (addop (currentToken, rest, cline)) in
     let (ti2, code2, table1, fn1) = (term ti1 table fn) in
     let (table2, et_place) = (addTemp table1) in
-    let fn2 = (fn1 ++ et_place ++ " = " ++ et_left ++ code1 ++ code2 ++ ";\n") in
+    let regCode = "r1 = " ++ et_left ++ ";\n" ++
+                  "r2 = " ++ code2 ++ ";\n" ++
+                  "r3 = r1" ++ code1 ++ "r2;\n" ++
+                  et_place ++ " = r3;\n" in
+    let fn2 = (fn1 ++ regCode) in
     let (ti3, code3, table3, fn3) = (expression_tail ti2 table2 fn2 et_place) in
     (ti3, code3, table3, fn3)
   | (tokenType currentToken) `elem` (parseTable "expression_tail" "FOLLOW") =
@@ -570,7 +574,11 @@ term_tail (currentToken, rest, cline) table fn tt_left
     let (ti1, code1) = (mulop (currentToken, rest, cline)) in
     let (ti2, code2, table1, fn1) = (factor ti1 table fn) in
     let (table2, tt_place) = (addTemp table1) in
-    let fn2 = (fn1 ++ tt_place ++ " = " ++ tt_left ++ code1 ++ code2 ++ ";\n") in
+    let regCode = "r1 = " ++ tt_left ++ ";\n" ++
+                  "r2 = " ++ code2 ++ ";\n" ++
+                  "r3 = r1" ++ code1 ++ "r2;\n" ++
+                  tt_place ++ " = r3;\n" in
+    let fn2 = (fn1 ++ regCode) in
     let (ti3, code3, table3, fn3) = (term_tail ti2 table2 fn2 tt_place) in
     (ti3, code3, table3, fn3)
   | (tokenType currentToken) `elem` (parseTable "term_tail" "FOLLOW") =
