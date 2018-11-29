@@ -9,11 +9,11 @@ data Table = Table Int Int Temps
 
 -- Get a new Conditional label
 getConditionalLabel :: Table -> (Table, String)
-getConditionalLabel (Table lc1 lc2 t) = ((Table (lc1 + 1) lc2 t), "CONLABEL454" ++ (show lc1))
+getConditionalLabel (Table lc1 lc2 t) = ((Table (lc1 + 1) lc2 t), "L" ++ (show lc1))
 
 -- Get a new Function return label
 getReturnLabel :: Table -> (Table, String)
-getReturnLabel (Table lc1 lc2 t) = ((Table lc1 (lc2 + 1) t), "RETLABEL454" ++ (show lc2))
+getReturnLabel (Table lc1 lc2 t) = ((Table lc1 (lc2 + 1) t), "_ret" ++ (show lc2))
 
 -- Add a variable/identifier to the current scope in the symbol table
 addEntry :: Table -> String -> String -> String -> Table
@@ -34,7 +34,7 @@ getMemVar :: Table -> String -> String -> String
 getMemVar (Table _ _ (Temps (Counts c1 t1, Counts c2 t2, Counts c3 t3))) value cline
  | (Map.member value t3) =
    let (Just index) = (Map.lookup value t3) in
-   "mem[fp - 3 - " ++ (show (c3 - index)) ++ "]"
+   "mem[fp - " ++ (show (3 + c3 - index)) ++ "]"
  | (Map.member value t2) =
    let (Just index) = (Map.lookup value t2) in
    "mem[fp + " ++ (show index) ++ "]"

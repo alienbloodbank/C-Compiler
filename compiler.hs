@@ -13,10 +13,10 @@ Author: Soubhk Ghosh
 11/19/2018
 -}
 
-getComments :: [Token] -> [String]
-getComments [] = []
-getComments ((Comment c) : rest) = c : getComments rest
-getComments (_ : rest) = getComments rest
+getMetaStatements :: [Token] -> [String]
+getMetaStatements [] = []
+getMetaStatements ((Comment c) : rest) = c : getMetaStatements rest
+getMetaStatements (_ : rest) = getMetaStatements rest
 
 type TokenIterator = (String, [Token], Int)
 
@@ -42,7 +42,7 @@ tokenType = takeWhile (/=' ')
 
 -- Update stack pointer whenever a temporary is created
 growStackFromTemp :: Table -> String
-growStackFromTemp (Table _ _ (Temps (_, Counts c2 _, _))) = "sp = fp + " ++ (show c2) ++ ";\n"
+growStackFromTemp (Table _ _ (Temps (_, Counts c2 _, _))) = "\tsp = fp + " ++ (show c2) ++ ";\n"
 
 -- Adds the callee epilogue code incase the programmer hasn't explicitly added the return statement
 funcTailCode :: String -> String
@@ -50,6 +50,7 @@ funcTailCode code
   | "*mem[fp - 2];\n" `isSuffixOf` code = code ++ "\n"
   | otherwise = code ++ (epilogue Nothing)
 
+-- Reports syntax error
 reportError :: [String] -> String -> String -> error
 reportError tokList cline expected = errorWithoutStackTrace ("Syntax Error: line " ++ cline ++
                                      ": expected " ++ (intercalate ", " (Prelude.map (\x -> "'" ++ x ++ "'") tokList)) ++
@@ -114,7 +115,7 @@ func_tail :: TokenIterator -> Table -> String -> (TokenIterator, String, Table)
 func_tail (currentToken, rest, cline) table idenValue
   | (tokenType currentToken) == ";" =
     let ti1 = (match (currentToken, rest, cline) ";") in
-    (ti1, "\n", table)
+    (ti1, "", table)
   | (tokenType currentToken) == "{" =
     let ti1 = (match (currentToken, rest, cline) "{") in
     let (ti2, table1) = (data_decls ti1 table) in
@@ -238,6 +239,8 @@ statements (currentToken, rest, cline) table bc_label
 statement -> assignment_or_general_func_call | 
 			printf_func_call | 
 			scanf_func_call | 
+                        read_func_call |
+                        write_func_call |
 			if_statement | 
 			while_statement	| 
 			return_statement | 
@@ -254,6 +257,12 @@ statement (currentToken, rest, cline) table fn bc_label
     (ti1, code1, table1, fn1)
   | (tokenType currentToken) `elem` (predict "scanf_func_call") =
     let (ti1, code1, table1, fn1) = (scanf_func_call (currentToken, rest, cline) table fn) in
+    (ti1, code1, table1, fn1)
+  | (tokenType currentToken) `elem` (predict "read_func_call") =
+    let (ti1, code1, table1, fn1) = (read_func_call (currentToken, rest, cline) table fn) in
+    (ti1, code1, table1, fn1)
+  | (tokenType currentToken) `elem` (predict "write_func_call") =
+    let (ti1, code1, table1, fn1) = (write_func_call (currentToken, rest, cline) table fn) in
     (ti1, code1, table1, fn1)
   | (tokenType currentToken) `elem` (predict "if_statement") =
     let (ti1, code1, table1, fn1) = (if_statement (currentToken, rest, cline) table fn bc_label) in
@@ -289,14 +298,14 @@ assignment_or_general_func_call_tail (currentToken, rest, cline) table fn idenVa
     let (ti2, code1, table1, fn1) = (expression ti1 table fn) in
     let ti3 = (match ti2 ";") in
     let named_var = (getMemVar table1 idenValue (show cline)) in
-    (ti3, named_var ++ " = " ++ code1 ++ ";\n", table1, fn1)
+    (ti3, "\t" ++ named_var ++ " = " ++ code1 ++ ";\n", table1, fn1)
   | (tokenType currentToken) == "(" =
     let ti1 = (match (currentToken, rest, cline) "(") in
     let (ti2, varList1, table1, fn1) = (expr_list ti1 table fn) in
     let ti3 = (match ti2 ")") in
     let ti4 = (match ti3 ";") in
     let (table2, retLabel) = (getReturnLabel table1) in  
-    (ti4, (preJump retLabel varList1) ++ "goto " ++ idenValue ++ "Func;\n"  ++ (postJump table2 retLabel Nothing), table2, fn1)
+    (ti4, (preJump retLabel varList1) ++ "\tgoto _func_" ++ idenValue ++ ";\n"  ++ (postJump table2 retLabel Nothing), table2, fn1)
   | otherwise = (reportError (predict "assignment_or_general_func_call_tail") (show cline) currentToken)
 
 -- printf_func_call -> printf ( STRING printf_func_call_tail   
@@ -307,7 +316,7 @@ printf_func_call (currentToken, rest, cline) table fn
     let ti2 = (match ti1 "(") in
     let ti3 = (match ti2 "string") in
     let (ti4, code1, table1, fn1) = (printf_func_call_tail ti3 table fn) in
-    (ti4, "printf(" ++ (extractValue (tiHead ti2)) ++ code1, table1, fn1)
+    (ti4, "\tprintf(" ++ (extractValue (tiHead ti2)) ++ code1, table1, fn1)
   | otherwise = (reportError (predict "printf_func_call") (show cline) currentToken)
 
 -- printf_func_call_tail -> ) ; | , expression ) ;
@@ -337,8 +346,32 @@ scanf_func_call (currentToken, rest, cline) table fn
     let (ti6, code1, table1, fn1) = (expression ti5 table fn) in
     let ti7 = (match ti6 ")") in
     let ti8 = (match ti7 ";") in
-    (ti8, "scanf(" ++ (extractValue (tiHead ti2)) ++ ", &" ++ code1 ++ ");\n", table1, fn1)
+    (ti8, "\tscanf(" ++ (extractValue (tiHead ti2)) ++ ", &" ++ code1 ++ ");\n", table1, fn1)
   | otherwise = (reportError (predict "scanf_func_call") (show cline) currentToken)
+
+-- read_func_call -> read ( expression ) ;
+read_func_call :: TokenIterator -> Table -> String -> (TokenIterator, String, Table, String)
+read_func_call (currentToken, rest, cline) table fn
+  | (tokenType currentToken) == "read" =
+    let ti1 = (match (currentToken, rest, cline) "read") in
+    let ti2 = (match ti1 "(") in
+    let (ti3, code1, table1, fn1) = (expression ti2 table fn) in
+    let ti4 = (match ti3 ")") in
+    let ti5 = (match ti4 ";") in
+    (ti5, "\tread(" ++ code1 ++ ");\n", table1, fn1)
+  | otherwise = (reportError (predict "read_func_call") (show cline) currentToken)
+
+-- write_func_call -> write ( expression ) ;
+write_func_call :: TokenIterator -> Table -> String -> (TokenIterator, String, Table, String)
+write_func_call (currentToken, rest, cline) table fn
+  | (tokenType currentToken) == "write" =
+    let ti1 = (match (currentToken, rest, cline) "write") in
+    let ti2 = (match ti1 "(") in
+    let (ti3, code1, table1, fn1) = (expression ti2 table fn) in
+    let ti4 = (match ti3 ")") in
+    let ti5 = (match ti4 ";") in
+    (ti5, "\tread(" ++ code1 ++ ");\n", table1, fn1)
+  | otherwise = (reportError (predict "write_func_call") (show cline) currentToken)
 
 -- expr_list -> ε | non_empty_expr_list  
 expr_list :: TokenIterator -> Table -> String -> (TokenIterator, [String], Table, String)
@@ -391,7 +424,7 @@ if_statement_tail (currentToken, rest, cline) table false_label bc_label
     let ti1 = (match (currentToken, rest, cline) "else") in
     let (ti2, code1, table1) = (block_statements ti1 table bc_label) in
     let (table2, else_label) = (getConditionalLabel table1) in
-    (ti2, "goto " ++ else_label ++ ";\n" ++ false_label ++ ":;\n" ++ code1 ++ else_label ++ ":;\n", table2)
+    (ti2, "\tgoto " ++ else_label ++ ";\n" ++ false_label ++ ":;\n" ++ code1 ++ else_label ++ ":;\n", table2)
   | (tokenType currentToken) `elem` (parseTable "if_statement_tail" "FOLLOW") =
     ((currentToken, rest, cline), false_label ++ ":;\n", table)
   | otherwise = (reportError (predict "if_statement_tail") (show cline) currentToken)
@@ -414,17 +447,17 @@ condition_expression_tail (currentToken, rest, cline) table fn condition_left tr
     let (ti1, code1) = (condition_op (currentToken, rest, cline)) in 
     let (table1, fn1) = (conditionCode table code1 fn condition_left true_label false_label)
          where conditionCode table condition_op_code fn condition_left true_label false_label
-                | condition_op_code == "||" = (table, fn ++ "if(" ++ condition_left ++ ") goto " ++ true_label ++ ";\n")
-                | condition_op_code == "&&" = (table1, fn ++ "if(" ++ condition_left ++ ") goto " ++ sc_label ++ ";\n" ++
-                                              "goto " ++ false_label ++ ";\n" ++ sc_label ++ ":;\n")
+                | condition_op_code == "||" = (table, fn ++ "\tif(" ++ condition_left ++ ") goto " ++ true_label ++ ";\n")
+                | condition_op_code == "&&" = (table1, fn ++ "\tif(" ++ condition_left ++ ") goto " ++ sc_label ++ ";\n" ++
+                                              "\tgoto " ++ false_label ++ ";\n" ++ sc_label ++ ":;\n")
                                                 where (table1, sc_label) = (getConditionalLabel table) in
     let (ti2, code2, table2, fn2) = (condition ti1 table1 fn1) in
-    (ti2, table2, fn2 ++ "if(" ++ code2 ++ ")" ++ " goto " ++ true_label ++ ";\n" ++
-    "goto " ++ false_label ++ ";\n")
+    (ti2, table2, fn2 ++ "\tif(" ++ code2 ++ ")" ++ " goto " ++ true_label ++ ";\n" ++
+    "\tgoto " ++ false_label ++ ";\n")
   | (tokenType currentToken) `elem` (parseTable "condition_expression_tail" "FOLLOW") =
     ((currentToken, rest, cline), table, fn ++ 
-    "if(" ++ condition_left ++ ") goto "  ++ true_label ++ ";\n" ++ 
-    "goto " ++ false_label ++ ";\n")
+    "\tif(" ++ condition_left ++ ") goto "  ++ true_label ++ ";\n" ++
+    "\tgoto " ++ false_label ++ ";\n")
   | otherwise = (reportError (predict "condition_expression_tail") (show cline) currentToken)
   
 -- condition_op -> && | ||
@@ -482,7 +515,7 @@ while_statement (currentToken, rest, cline) table fn
     let (ti3, table2, fn2, true_label, false_label) = (condition_expression ti2 table1 fn1) in
     let ti4 = (match ti3 ")") in
     let (ti5, code1, table3) = (block_statements ti4 table2 [begin_label, false_label]) in
-    (ti5, true_label ++ ":;\n" ++ code1 ++ "goto " ++ begin_label ++ ";\n" ++ false_label ++ ":;\n" , table3, fn2)
+    (ti5, true_label ++ ":;\n" ++ code1 ++ "\tgoto " ++ begin_label ++ ";\n" ++ false_label ++ ":;\n" , table3, fn2)
   | otherwise = (reportError (predict "while_statement") (show cline) currentToken)
 
 -- return_statement -> return return_statement_tail
@@ -514,7 +547,7 @@ break_statement (currentToken, rest, cline) table label
     let ti2 = (match ti1 ";") in
     let code1 = (breakCode label)
          where breakCode [] = "\n"
-               breakCode label = "goto " ++ (label !! 1) ++ ";\n" in
+               breakCode label = "\tgoto " ++ (label !! 1) ++ ";\n" in
     (ti2, code1, table)
   | otherwise = (reportError (predict "break_statement") (show cline) currentToken)
   
@@ -526,7 +559,7 @@ continue_statement (currentToken, rest, cline) table label
     let ti2 = (match ti1 ";") in
     let code1 = (continueCode label)
          where continueCode [] = "\n"
-               continueCode label = "goto " ++ (label !! 0) ++ ";\n" in
+               continueCode label = "\tgoto " ++ (label !! 0) ++ ";\n" in
     (ti2, code1, table)
   | otherwise = (reportError (predict "continue_statement") (show cline) currentToken)
 
@@ -546,10 +579,10 @@ expression_tail (currentToken, rest, cline) table fn et_left
     let (ti1, code1) = (addop (currentToken, rest, cline)) in
     let (ti2, code2, table1, fn1) = (term ti1 table fn) in
     let (table2, et_place) = (addTemp table1) in
-    let regCode = "r1 = " ++ et_left ++ ";\n" ++
-                  "r2 = " ++ code2 ++ ";\n" ++
-                  "r3 = r1" ++ code1 ++ "r2;\n" ++
-                  et_place ++ " = r3;\n" in
+    let regCode = "\tr1 = " ++ et_left ++ ";\n" ++
+                  "\tr2 = " ++ code2 ++ ";\n" ++
+                  "\tr3 = r1" ++ code1 ++ "r2;\n" ++
+                  "\t" ++ et_place ++ " = r3;\n" in
     let fn2 = (fn1 ++ (growStackFromTemp table2) ++ regCode) in
     let (ti3, code3, table3, fn3) = (expression_tail ti2 table2 fn2 et_place) in
     (ti3, code3, table3, fn3)
@@ -584,10 +617,10 @@ term_tail (currentToken, rest, cline) table fn tt_left
     let (ti1, code1) = (mulop (currentToken, rest, cline)) in
     let (ti2, code2, table1, fn1) = (factor ti1 table fn) in
     let (table2, tt_place) = (addTemp table1) in
-    let regCode = "r1 = " ++ tt_left ++ ";\n" ++
-                  "r2 = " ++ code2 ++ ";\n" ++
-                  "r3 = r1" ++ code1 ++ "r2;\n" ++
-                  tt_place ++ " = r3;\n" in
+    let regCode = "\tr1 = " ++ tt_left ++ ";\n" ++
+                  "\tr2 = " ++ code2 ++ ";\n" ++
+                  "\tr3 = r1" ++ code1 ++ "r2;\n" ++
+                  "\t" ++ tt_place ++ " = r3;\n" in
     let fn2 = (fn1 ++ (growStackFromTemp table2) ++ regCode) in
     let (ti3, code3, table3, fn3) = (term_tail ti2 table2 fn2 tt_place) in
     (ti3, code3, table3, fn3)
@@ -616,13 +649,13 @@ factor (currentToken, rest, cline) table fn
   | (tokenType currentToken) == "number" =
     let ti1 = (match (currentToken, rest, cline) "number") in
     let (table1, named_var) = (addTemp table) in
-    let fn1 = (fn ++ (growStackFromTemp table1) ++ named_var ++ " = " ++ (extractValue currentToken) ++ ";\n") in
+    let fn1 = (fn ++ (growStackFromTemp table1) ++ "\t" ++ named_var ++ " = " ++ (extractValue currentToken) ++ ";\n") in
     (ti1, named_var, table1, fn1)
   | (tokenType currentToken) == "-" =
     let ti1 = (match (currentToken, rest, cline) "-") in
     let ti2 = (match ti1 "number") in
     let (table1, named_var) = (addTemp table) in
-    let fn1 = (fn ++ (growStackFromTemp table1) ++ named_var ++ " = " ++ "-" ++ (extractValue (tiHead ti1)) ++ ";\n") in
+    let fn1 = (fn ++ (growStackFromTemp table1) ++ "\t" ++ named_var ++ " = " ++ "-" ++ (extractValue (tiHead ti1)) ++ ";\n") in
     (ti2, named_var, table1, fn1)
   | (tokenType currentToken) == "(" =
     let ti1 = (match (currentToken, rest, cline) "(") in
@@ -643,7 +676,7 @@ factor_tail (currentToken, rest, cline) table fn idenValue
     let ti3 = (match ti2 ")") in
     let (table2, named_var) = (addTemp table1) in
     let (table3, retLabel) = (getReturnLabel table2) in
-    let code1 = ((preJump retLabel varList1) ++ "goto " ++ idenValue ++ "Func;\n" ++ (postJump table3 retLabel (Just named_var))) in
+    let code1 = ((preJump retLabel varList1) ++ "\tgoto _func_" ++ idenValue ++ ";\n" ++ (postJump table3 retLabel (Just named_var))) in
     let fn2 = (fn1 ++ (growStackFromTemp table3) ++ code1) in
     (ti3, named_var, table3, fn2)
   | otherwise = (reportError (predict "factor_tail") (show cline) currentToken)
@@ -656,10 +689,10 @@ main = do
   let symbolTable = Table 1 1 (Temps (Counts 0 Map.empty, Counts 0 Map.empty, Counts 0 Map.empty))
 -- Start parsing
   let (_, programCode, _) = program (nextToken tokens 1) symbolTable
--- Get comments
-  let comments = unlines (getComments tokens)
+-- Get meta-statements
+  let metaStatements = unlines (getMetaStatements tokens)
 -- Print comments
-  putStrLn comments
+  putStrLn metaStatements
 -- Print generated code 
   putStrLn programCode
 
