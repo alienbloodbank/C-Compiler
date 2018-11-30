@@ -8,7 +8,7 @@ import Data.List (intercalate, isSuffixOf)
 import Data.Map as Map
 
 {-
-Parser/Translator
+compiler.hs
 Author: Soubhk Ghosh
 11/19/2018
 -}
@@ -47,7 +47,7 @@ growStackFromTemp (Table _ _ (Temps (_, Counts c2 _, _))) = "\tsp = fp + " ++ (s
 -- Adds the callee epilogue code incase the programmer hasn't explicitly added the return statement
 funcTailCode :: String -> String
 funcTailCode code
-  | "*mem[fp - 2];\n" `isSuffixOf` code = code ++ "\n"
+  | "*mem[fp - 2];\n" `isSuffixOf` code = code
   | otherwise = code ++ (epilogue Nothing)
 
 -- Reports syntax error
@@ -414,7 +414,7 @@ if_statement (currentToken, rest, cline) table fn bc_label
     let ti4 = (match ti3 ")") in
     let (ti5, code1, table2) = (block_statements ti4 table1 bc_label) in
     let (ti6, code2, table3) = (if_statement_tail ti5 table2 false_label bc_label) in
-    (ti6, true_label ++ ":;\n" ++ code1 ++ code2, table3, fn1)
+    (ti6, true_label ++ ":\n\t;\n" ++ code1 ++ code2, table3, fn1)
   | otherwise = (reportError (predict "if_statement") (show cline) currentToken)
   
 -- if_statement_tail -> ε | else block_statements
@@ -424,9 +424,9 @@ if_statement_tail (currentToken, rest, cline) table false_label bc_label
     let ti1 = (match (currentToken, rest, cline) "else") in
     let (ti2, code1, table1) = (block_statements ti1 table bc_label) in
     let (table2, else_label) = (getConditionalLabel table1) in
-    (ti2, "\tgoto " ++ else_label ++ ";\n" ++ false_label ++ ":;\n" ++ code1 ++ else_label ++ ":;\n", table2)
+    (ti2, "\tgoto " ++ else_label ++ ";\n" ++ false_label ++ ":\n\t;\n" ++ code1 ++ else_label ++ ":\n\t;\n", table2)
   | (tokenType currentToken) `elem` (parseTable "if_statement_tail" "FOLLOW") =
-    ((currentToken, rest, cline), false_label ++ ":;\n", table)
+    ((currentToken, rest, cline), false_label ++ ":\n\t;\n", table)
   | otherwise = (reportError (predict "if_statement_tail") (show cline) currentToken)
   
 -- condition_expression -> condition condition_expression_tail
@@ -449,7 +449,7 @@ condition_expression_tail (currentToken, rest, cline) table fn condition_left tr
          where conditionCode table condition_op_code fn condition_left true_label false_label
                 | condition_op_code == "||" = (table, fn ++ "\tif(" ++ condition_left ++ ") goto " ++ true_label ++ ";\n")
                 | condition_op_code == "&&" = (table1, fn ++ "\tif(" ++ condition_left ++ ") goto " ++ sc_label ++ ";\n" ++
-                                              "\tgoto " ++ false_label ++ ";\n" ++ sc_label ++ ":;\n")
+                                              "\tgoto " ++ false_label ++ ";\n" ++ sc_label ++ ":\n\t;\n")
                                                 where (table1, sc_label) = (getConditionalLabel table) in
     let (ti2, code2, table2, fn2) = (condition ti1 table1 fn1) in
     (ti2, table2, fn2 ++ "\tif(" ++ code2 ++ ")" ++ " goto " ++ true_label ++ ";\n" ++
@@ -478,7 +478,7 @@ condition (currentToken, rest, cline) table fn
     let (ti1, code1, table1, fn1) = (expression (currentToken, rest, cline) table fn) in
     let (ti2, code2) = (comparison_op ti1) in 
     let (ti3, code3, table2, fn2) = (expression ti2 table1 fn1) in
-    (ti3, code1 ++ code2 ++ code3, table2, fn2)
+    (ti3, "r1" ++ code2 ++ "r2", table2, fn2 ++ "\tr1 = " ++ code1 ++ ";\n" ++ "\tr2 = " ++ code3 ++ ";\n")
   | otherwise = (reportError (predict "condition") (show cline) currentToken)
   
 -- comparison_op -> == | != | > | >= | < | <= 
@@ -511,11 +511,11 @@ while_statement (currentToken, rest, cline) table fn
     let ti1 = (match (currentToken, rest, cline) "while") in
     let ti2 = (match ti1 "(") in
     let (table1, begin_label) = (getConditionalLabel table) in
-    let fn1 = (fn ++ begin_label ++ ":;\n") in
+    let fn1 = (fn ++ begin_label ++ ":\n\t;\n") in
     let (ti3, table2, fn2, true_label, false_label) = (condition_expression ti2 table1 fn1) in
     let ti4 = (match ti3 ")") in
     let (ti5, code1, table3) = (block_statements ti4 table2 [begin_label, false_label]) in
-    (ti5, true_label ++ ":;\n" ++ code1 ++ "\tgoto " ++ begin_label ++ ";\n" ++ false_label ++ ":;\n" , table3, fn2)
+    (ti5, true_label ++ ":\n\t;\n" ++ code1 ++ "\tgoto " ++ begin_label ++ ";\n" ++ false_label ++ ":\n\t;\n" , table3, fn2)
   | otherwise = (reportError (predict "while_statement") (show cline) currentToken)
 
 -- return_statement -> return return_statement_tail

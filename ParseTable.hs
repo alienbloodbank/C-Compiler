@@ -1,5 +1,11 @@
 module ParseTable (parseTable, predict) where
 
+{-
+ParseTable.hs
+Author: Soubhk Ghosh
+11/19/2018
+-}
+
 -- Check for eps non-terminals
 isEPS :: String -> Bool
 isEPS s = s `elem` ["program_data",

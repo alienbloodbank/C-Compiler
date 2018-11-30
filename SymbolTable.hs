@@ -3,6 +3,12 @@ module SymbolTable where
 import Data.List
 import Data.Map as Map
 
+{-
+SymbolTable.hs
+Author: Soubhk Ghosh
+11/19/2018
+-}
+
 data Counts = Counts Int (Map String Int) deriving Show
 data Temps = Temps (Counts, Counts, Counts)
 data Table = Table Int Int Temps

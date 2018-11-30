@@ -2,6 +2,12 @@ module ProgramLayout where
 
 import SymbolTable
 
+{-
+ProgramLayout.hs
+Author: Soubhk Ghosh
+11/19/2018
+-}
+
 -- Initialize registers and fix stack memory size
 -- The stack here grows towards higher indices of the stack memory
 vonNeumannInitCode = "#define N 20000\n" ++
@@ -11,7 +17,7 @@ vonNeumannInitCode = "#define N 20000\n" ++
 
 -- End code for the program
 -- By default main returns zero as given in 'vonNeumannCode' function
-vonNeumannExitCode = "_exit:;\n" ++
+vonNeumannExitCode = "_exit:\n\t;\n" ++
                      "\treturn mem[fp - 1];\n}\n"
 
 -- Append Stack and Frame pointer initialization code based on the following information:
@@ -19,8 +25,8 @@ vonNeumannExitCode = "_exit:;\n" ++
 -- Reserve the next 2 locations to store the main function's return address and return value for compiler simplicity.
 vonNeumannCode :: Table -> String -> String
 vonNeumannCode (Table _ _ (Temps (Counts c1 _, _, _))) programCode = vonNeumannInitCode ++
-                                   "\tfp = " ++ (show (2 + c1)) ++ ";\n" ++
-                                   "\tsp = " ++ (show (2 + c1)) ++ ";\n" ++
+                                   "\tfp = " ++ (show (c1 + 2)) ++ ";\n" ++
+                                   "\tsp = " ++ (show (c1 + 2)) ++ ";\n" ++
                                    "\tmem[fp - 2] = &&_exit;\n" ++
                                    "\tmem[fp - 1] = 0;\n" ++
                                    "\tgoto _func_main;\n" ++
@@ -29,7 +35,7 @@ vonNeumannCode (Table _ _ (Temps (Counts c1 _, _, _))) programCode = vonNeumannI
 
 -- Callee prologue code generator
 prologue :: Table -> String -> String
-prologue (Table _ _ (Temps (_, Counts c2 _, _))) idenValue = "_func_" ++ idenValue ++ ":;\n" ++
+prologue (Table _ _ (Temps (_, Counts c2 _, _))) idenValue = "_func_" ++ idenValue ++ ":\n\t;\n" ++
                                                              "\tfp = sp;\n" ++
                                                              "\tsp = fp + " ++ (show c2) ++ ";\n"
 
@@ -44,17 +50,15 @@ epilogue retMem = (retValCode retMem) ++
 -- Caller pre-jump code generator
 preJump :: String -> [String] -> String
 preJump label varList = (concat (zipWith assignParamsCode [0..] varList)) ++
-                        (updateStackPointerCode varList) ++
+                        "\tsp = sp + " ++ (show (length varList)) ++ ";\n" ++
                         "\tmem[sp] = fp;\n" ++
                         "\tmem[sp + 1] = &&" ++ label ++ ";\n" ++
                         "\tsp = sp + 3;\n"
-  where updateStackPointerCode [] = ""
-        updateStackPointerCode varList = "\tsp = sp + " ++ (show (length varList)) ++ ";\n"
-        assignParamsCode x y = "\tmem[sp + " ++ (show x) ++ "] = " ++ y ++ ";\n"
+  where assignParamsCode x y = "\tmem[sp + " ++ (show x) ++ "] = " ++ y ++ ";\n"
 
 -- Caller post-jump code generator
 postJump :: Table -> String -> Maybe String -> String
-postJump (Table _ _ (Temps (_, Counts c2 _, _))) label retMem = label ++ ":;\n" ++
+postJump (Table _ _ (Temps (_, Counts c2 _, _))) label retMem = label ++ ":\n\t;\n" ++
                         "\tfp = mem[sp - 3];\n" ++
                         (retValCode retMem) ++
                         "\tsp = fp + " ++ (show c2) ++ ";\n"
