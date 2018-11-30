@@ -4,6 +4,7 @@ import System.IO
 import Data.Char
 
 {-
+Scanner.hs
 Author: Jonah Shafran
 11/5/2018
 -}
