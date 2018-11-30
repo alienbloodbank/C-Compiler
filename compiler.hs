@@ -370,7 +370,7 @@ write_func_call (currentToken, rest, cline) table fn
     let (ti3, code1, table1, fn1) = (expression ti2 table fn) in
     let ti4 = (match ti3 ")") in
     let ti5 = (match ti4 ";") in
-    (ti5, "\tread(" ++ code1 ++ ");\n", table1, fn1)
+    (ti5, "\twrite(" ++ code1 ++ ");\n", table1, fn1)
   | otherwise = (reportError (predict "write_func_call") (show cline) currentToken)
 
 -- expr_list -> ε | non_empty_expr_list  
