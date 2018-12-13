@@ -40,10 +40,6 @@ tiHead (ti, tokens, cline) = ti
 tokenType :: String -> String
 tokenType = takeWhile (/=' ')
 
--- Update stack pointer whenever a temporary is created
-growStackFromTemp :: Table -> String
-growStackFromTemp (Table _ _ (Temps (_, Counts c2 _, _))) = "\tsp = fp + " ++ (show c2) ++ ";\n"
-
 -- Adds the callee epilogue code incase the programmer hasn't explicitly added the return statement
 funcTailCode :: String -> String
 funcTailCode code

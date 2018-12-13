@@ -17,8 +17,17 @@ vonNeumannInitCode = "#define N 20000\n" ++
 
 -- End code for the program
 -- By default main returns zero as given in 'vonNeumannCode' function
-vonNeumannExitCode = "_exit:\n\t;\n" ++
+vonNeumannExitCode = "_overflow:\n\t;\n" ++
+                     "\tprintf(\"Stack Overflow\\n\");\n\treturn 1;\n" ++
+                     "_exit:\n\t;\n" ++
                      "\treturn mem[fp - 1];\n}\n"
+
+checkStackOverflow :: String
+checkStackOverflow = "\tif(sp >= 20000) goto _overflow;\n"
+
+-- Update stack pointer whenever a temporary is created
+growStackFromTemp :: Table -> String
+growStackFromTemp (Table _ _ (Temps (_, Counts c2 _, _))) = "\tsp = fp + " ++ (show c2) ++ ";\n" ++ checkStackOverflow
 
 -- Append Stack and Frame pointer initialization code based on the following information:
 -- Reserve a subset of the initial memory to store global variables if they exist.
@@ -37,7 +46,7 @@ vonNeumannCode (Table _ _ (Temps (Counts c1 _, _, _))) programCode = vonNeumannI
 prologue :: Table -> String -> String
 prologue (Table _ _ (Temps (_, Counts c2 _, _))) idenValue = "_func_" ++ idenValue ++ ":\n\t;\n" ++
                                                              "\tfp = sp;\n" ++
-                                                             "\tsp = fp + " ++ (show c2) ++ ";\n"
+                                                             "\tsp = fp + " ++ (show c2) ++ ";\n" ++ checkStackOverflow
 
 -- Callee epilogue code generator
 epilogue :: Maybe String -> String
@@ -49,12 +58,12 @@ epilogue retMem = (retValCode retMem) ++
 
 -- Caller pre-jump code generator
 preJump :: String -> [String] -> String
-preJump label varList = (concat (zipWith assignParamsCode [0..] varList)) ++
-                        "\tsp = sp + " ++ (show (length varList)) ++ ";\n" ++
-                        "\tmem[sp] = fp;\n" ++
-                        "\tmem[sp + 1] = &&" ++ label ++ ";\n" ++
-                        "\tsp = sp + 3;\n"
-  where assignParamsCode x y = "\tmem[sp + " ++ (show x) ++ "] = " ++ y ++ ";\n"
+preJump label varList = "\tsp = sp + " ++ (show (length varList)) ++ ";\n" ++ checkStackOverflow ++
+                        (concat (zipWith assignParamsCode [1..] (reverse varList))) ++
+                        "\tsp = sp + 3;\n" ++ checkStackOverflow ++
+                        "\tmem[sp - 3] = fp;\n" ++
+                        "\tmem[sp - 2] = &&" ++ label ++ ";\n"
+  where assignParamsCode x y = "\tmem[sp + " ++ (show (-x)) ++ "] = " ++ y ++ ";\n"
 
 -- Caller post-jump code generator
 postJump :: Table -> String -> Maybe String -> String
