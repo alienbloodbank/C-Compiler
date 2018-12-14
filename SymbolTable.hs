@@ -27,7 +27,7 @@ addEntry (Table lc1 lc2 (Temps (Counts c1 t1, Counts c2 t2, Counts c3 t3))) scop
  | (&&) (scope == "global") (not (Map.member value t1)) = (Table lc1 lc2 (Temps (newTable c1 t1, Counts c2 t2, Counts c3 t3)))
  | not ((Map.member value t2) || (Map.member value t3)) =
     case scope of "local" -> (Table lc1 lc2 (Temps (Counts c1 t1, newTable c2 t2, Counts c3 t3)))
-                  "param" -> (Table lc1 lc2 (Temps (Counts c1 t1, Counts c2 t2, newTable c2 t3)))
+                  "param" -> (Table lc1 lc2 (Temps (Counts c1 t1, Counts c2 t2, newTable c3 t3)))
  | otherwise = errorWithoutStackTrace ("Semantic Error: line " ++ cline ++ ": '" ++ value ++ "' redeclared as different kind of symbol")
  where newTable c t = Counts (c + offset) (Map.insert value c t)
 
