@@ -2,6 +2,8 @@ module ProgramLayout where
 
 import SymbolTable
 
+import Data.List (isSuffixOf)
+
 {-
 ProgramLayout.hs
 Author: Soubhk Ghosh
@@ -73,4 +75,10 @@ postJump (Table _ _ (Temps (_, Counts c2 _, _))) label retMem = label ++ ":\n\t;
                         "\tsp = fp + " ++ (show c2) ++ ";\n"
   where retValCode Nothing = ""
         retValCode (Just id) = "\t" ++ id ++ " = mem[sp - 1];\n"
+
+-- Adds the callee epilogue code incase the programmer hasn't explicitly added the return statement
+funcTailCode :: String -> String
+funcTailCode code
+  | "*mem[fp - 2];\n" `isSuffixOf` code = code
+  | otherwise = code ++ (epilogue Nothing)
 

@@ -2,9 +2,9 @@ import Scanner
 import ParseTable
 import SymbolTable
 import ProgramLayout
+import Evaluator
 
 import System.Environment (getArgs)
-import Data.List (intercalate, isSuffixOf)
 import Data.Map as Map
 
 {-
@@ -12,45 +12,6 @@ compiler.hs
 Author: Soubhk Ghosh
 11/19/2018
 -}
-
-getMetaStatements :: [Token] -> [String]
-getMetaStatements [] = []
-getMetaStatements ((Comment c) : rest) = c : getMetaStatements rest
-getMetaStatements (_ : rest) = getMetaStatements rest
-
-type TokenIterator = (String, [Token], Int)
-
--- Token iterator
-nextToken :: [Token] -> Int -> TokenIterator
-nextToken [] cline = ("EOF", [], cline)
-nextToken ((Comment c) : rest) cline = nextToken rest (cline + 1)
-nextToken ((Reserved r) : rest) cline = (r, rest, cline)
-nextToken ((Symbol "\n") : rest) cline = nextToken rest (cline + 1)
-nextToken ((Symbol s) : rest) cline = (s, rest, cline)
-nextToken ((Number s) : rest) cline = ("number " ++ s, rest, cline)
-nextToken ((String s) : rest) cline = ("string " ++ s, rest, cline)
-nextToken ((Identifier s) : rest) cline = ("identifier " ++ s, rest, cline)
-
-extractValue :: String -> String
-extractValue s = snd (Prelude.splitAt 1 (dropWhile (/=' ') s))
-
-tiHead :: TokenIterator -> String
-tiHead (ti, tokens, cline) = ti
-
-tokenType :: String -> String
-tokenType = takeWhile (/=' ')
-
--- Adds the callee epilogue code incase the programmer hasn't explicitly added the return statement
-funcTailCode :: String -> String
-funcTailCode code
-  | "*mem[fp - 2];\n" `isSuffixOf` code = code
-  | otherwise = code ++ (epilogue Nothing)
-
--- Reports syntax error
-reportError :: [String] -> String -> String -> error
-reportError tokList cline expected = errorWithoutStackTrace ("Syntax Error: line " ++ cline ++
-                                     ": expected " ++ (intercalate ", " (Prelude.map (\x -> "'" ++ x ++ "'") tokList)) ++
-                                     " before " ++ expected)
 
 -- Token consumer
 match :: TokenIterator -> String -> TokenIterator
@@ -92,10 +53,20 @@ global_decl (currentToken, rest, cline) table
 global_decl_tail :: TokenIterator -> Table -> String -> (TokenIterator, String, Table)
 global_decl_tail (currentToken, rest, cline) table idenValue
   | (tokenType currentToken) `elem` (predict "id_list_tail") =
-    let table1 = (addEntry table "global" idenValue (show cline)) in
+    let table1 = (addEntry table "global" idenValue (show cline) 1) in
     let (ti1, table2) = (id_list_tail (currentToken, rest, cline) table1 "global") in
     let ti2 = (match ti1 ";") in
     (ti2, "", table2)
+  | (tokenType currentToken) == "[" =
+    let ti1 = (match (currentToken, rest, cline) "[") in
+    let (Table lc1 lc2 (Temps (cs1, _, cs3))) = table in
+    let table1 = (Table lc1 lc2 (Temps (cs1, Counts 0 Map.empty, cs3))) in
+    let (ti2, arraySize) = (evaluateConstant ti1) in
+    let ti3 = (match ti2 "]") in
+    let table2 = (addEntry table1 "global" idenValue (show cline) arraySize) in
+    let (ti4, table3) = (id_list_tail ti3 table2 "global") in
+    let ti5 = (match ti4 ";") in
+    (ti5, "", table3)
   | (tokenType currentToken) == "(" =
     let ti1 = (match (currentToken, rest, cline) "(") in
     let (Table lc1 lc2 (Temps (cs1, _, _))) = table in
@@ -142,8 +113,8 @@ parameter_list (currentToken, rest, cline) table
     (ti2, table1)
   | (tokenType currentToken) == "int" =
     let ti1 = (match (currentToken, rest, cline) "int") in
-    let ti2 = (match ti1 "identifier") in
-    let table1 = (addEntry table "param" (extractValue (tiHead ti1)) (show cline)) in
+    let (ti2, _) = (identifierNT ti1) in
+    let table1 = (addEntry table "param" (extractValue (tiHead ti1)) (show cline) 1) in
     let (ti3, table2) = (non_empty_parameter_list ti2 table1) in
     (ti3, table2)
   | otherwise = (reportError (predict "parameter_list") (show cline) currentToken)
@@ -153,9 +124,9 @@ parameter_list_tail :: TokenIterator -> Table -> String -> (TokenIterator, Table
 parameter_list_tail (currentToken, rest, cline) table typeNameCode
   | (tokenType currentToken) `elem` (parseTable "parameter_list_tail" "FOLLOW") =
     ((currentToken, rest, cline), table)
-  | (tokenType currentToken) == "identifier" =
-    let ti1 = (match (currentToken, rest, cline) "identifier") in
-    let table1 = (addEntry table "param" (extractValue currentToken) (show cline)) in
+  | (tokenType currentToken) `elem` (predict "identifierNT") =
+    let (ti1, _) = (identifierNT (currentToken, rest, cline)) in
+    let table1 = (addEntry table "param" (extractValue currentToken) (show cline) 1) in
     let (ti2, table2) = (non_empty_parameter_list ti1 table1) in
     (ti2, table2)
   | otherwise = (reportError (predict "parameter_list_tail") (show cline) currentToken)
@@ -168,12 +139,12 @@ non_empty_parameter_list (currentToken, rest, cline) table
   | (tokenType currentToken) == "," =
     let ti1 = (match (currentToken, rest, cline) ",") in
     let ti2 = (type_name ti1) in
-    let ti3 = (match ti2 "identifier") in
-    let table1 = (addEntry table "param" (extractValue (tiHead ti2)) (show cline)) in
+    let (ti3, _) = (identifierNT ti2) in
+    let table1 = (addEntry table "param" (extractValue (tiHead ti2)) (show cline) 1) in
     let (ti4, table2) = (non_empty_parameter_list ti3 table1) in
-    (ti3, table2)
+    (ti4, table2)
   | otherwise = (reportError (predict "non_empty_parameter_list") (show cline) currentToken)
-  
+
 -- data_decls -> ε | type_name id_list ; data_decls
 data_decls :: TokenIterator -> Table -> (TokenIterator, Table)
 data_decls (currentToken, rest, cline) table
@@ -190,25 +161,44 @@ data_decls (currentToken, rest, cline) table
 -- id_list -> identifier id_list_tail
 id_list :: TokenIterator -> Table -> (TokenIterator, Table)
 id_list (currentToken, rest, cline) table
-  | (tokenType currentToken) == "identifier" =
-    let ti1 = (match (currentToken, rest, cline) "identifier") in
-    let table1 = (addEntry table "local" (extractValue currentToken) (show cline)) in
+  | (tokenType currentToken) `elem` (predict "identifierNT") =
+    let (ti1, arraySize) = (identifierNT (currentToken, rest, cline)) in
+    let table1 = (addEntry table "local" (extractValue currentToken) (show cline) arraySize) in
     let (ti2, table2) = (id_list_tail ti1 table1 "local") in
     (ti2, table2)
   | otherwise = (reportError (predict "id_list") (show cline) currentToken)
-  
+
 -- id_list_tail -> ε | , identifier id_list_tail
 id_list_tail :: TokenIterator -> Table -> String -> (TokenIterator, Table)
 id_list_tail (currentToken, rest, cline) table scope
   | (tokenType currentToken) == "," =
     let ti1 = (match (currentToken, rest, cline) ",") in
-    let ti2 = (match ti1 "identifier") in
-    let table1 = (addEntry table scope (extractValue (tiHead ti1)) (show cline)) in
+    let (ti2, arraySize) = (identifierNT ti1) in
+    let table1 = (addEntry table scope (extractValue (tiHead ti1)) (show cline) arraySize) in
     let (ti3, table2) = (id_list_tail ti2 table1 scope) in
     (ti3, table2)
   | (tokenType currentToken) `elem` (parseTable "id_list_tail" "FOLLOW") =
     ((currentToken, rest, cline), table)
   | otherwise = (reportError (predict "id_list_tail") (show cline) currentToken)
+
+identifierNT :: TokenIterator -> (TokenIterator, Int)
+identifierNT (currentToken, rest, cline)
+  | (tokenType currentToken) == "identifier" =
+    let ti1 = (match (currentToken, rest, cline) "identifier") in
+    let (ti2, arraySize) = (identifierNT_tail ti1) in
+    (ti2, arraySize)
+  | otherwise = (reportError (predict "identifierNT") (show cline) currentToken)
+
+identifierNT_tail :: TokenIterator -> (TokenIterator, Int)
+identifierNT_tail (currentToken, rest, cline)
+  | (tokenType currentToken) == "[" =
+    let ti1 = (match (currentToken, rest, cline) "[") in
+    let (ti2, arraySize) = (evaluateConstant ti1) in
+    let ti3 = (match ti2 "]") in
+    (ti3, arraySize)
+  | (tokenType currentToken) `elem` (parseTable "identifierNT_tail" "FOLLOW") =
+    ((currentToken, rest, cline), 1)
+  | otherwise = (reportError (predict "identifierNT_tail") (show cline) currentToken)
 
 -- block_statements -> { statements }
 block_statements :: TokenIterator -> Table -> [String] -> (TokenIterator, String, Table)
@@ -289,6 +279,15 @@ assignment_or_general_func_call (currentToken, rest, cline) table fn
 -- assignment_or_general_func_call_tail -> = expression ; | ( expr_list ) ;
 assignment_or_general_func_call_tail :: TokenIterator -> Table -> String -> String -> (TokenIterator, String, Table, String)
 assignment_or_general_func_call_tail (currentToken, rest, cline) table fn idenValue
+  | (tokenType currentToken) == "[" =
+    let ti1 = (match (currentToken, rest, cline) "[") in
+    let (ti2, code1, table1, fn1) = (expression ti1 table fn) in
+    let ti3 = (match ti2 "]") in
+    let ti4 = (match ti3 "=") in
+    let (ti5, code2, table2, fn2) = (expression ti4 table1 fn1) in
+    let ti6 = (match ti5 ";") in
+    let (named_var, fn3) = (getMemArrayVar table2 idenValue fn2 code1 (show cline)) in
+    (ti6, "\t" ++ named_var ++ " = " ++ code2 ++ ";\n", table2, fn3)
   | (tokenType currentToken) == "=" =
     let ti1 = (match (currentToken, rest, cline) "=") in
     let (ti2, code1, table1, fn1) = (expression ti1 table fn) in
@@ -577,8 +576,8 @@ expression_tail (currentToken, rest, cline) table fn et_left
     let (table2, et_place) = (addTemp table1) in
     let regCode = "\tr1 = " ++ et_left ++ ";\n" ++
                   "\tr2 = " ++ code2 ++ ";\n" ++
-                  "\tr3 = r1" ++ code1 ++ "r2;\n" ++
-                  "\t" ++ et_place ++ " = r3;\n" in
+                  "\tr1 = r1" ++ code1 ++ "r2;\n" ++
+                  "\t" ++ et_place ++ " = r1;\n" in
     let fn2 = (fn1 ++ (growStackFromTemp table2) ++ regCode) in
     let (ti3, code3, table3, fn3) = (expression_tail ti2 table2 fn2 et_place) in
     (ti3, code3, table3, fn3)
@@ -615,8 +614,8 @@ term_tail (currentToken, rest, cline) table fn tt_left
     let (table2, tt_place) = (addTemp table1) in
     let regCode = "\tr1 = " ++ tt_left ++ ";\n" ++
                   "\tr2 = " ++ code2 ++ ";\n" ++
-                  "\tr3 = r1" ++ code1 ++ "r2;\n" ++
-                  "\t" ++ tt_place ++ " = r3;\n" in
+                  "\tr1 = r1" ++ code1 ++ "r2;\n" ++
+                  "\t" ++ tt_place ++ " = r1;\n" in
     let fn2 = (fn1 ++ (growStackFromTemp table2) ++ regCode) in
     let (ti3, code3, table3, fn3) = (term_tail ti2 table2 fn2 tt_place) in
     (ti3, code3, table3, fn3)
@@ -666,6 +665,12 @@ factor_tail (currentToken, rest, cline) table fn idenValue
   | (tokenType currentToken) `elem` (parseTable "factor_tail" "FOLLOW") =
     let named_var = (getMemVar table idenValue (show cline)) in
     ((currentToken, rest, cline), named_var, table, fn)
+  | (tokenType currentToken) == "[" =
+    let ti1 = (match (currentToken, rest, cline) "[") in
+    let (ti2, code1, table1, fn1) = (expression ti1 table fn) in
+    let ti3 = (match ti2 "]") in
+    let (named_var, fn2) = (getMemArrayVar table1 idenValue fn1 code1 (show cline)) in
+    (ti3, named_var, table1, fn2)
   | (tokenType currentToken) == "(" =
     let ti1 = (match (currentToken, rest, cline) "(") in
     let (ti2, varList1, table1, fn1) = (expr_list ti1 table fn) in
@@ -676,7 +681,7 @@ factor_tail (currentToken, rest, cline) table fn idenValue
     let fn2 = (fn1 ++ (growStackFromTemp table3) ++ code1) in
     (ti3, named_var, table3, fn2)
   | otherwise = (reportError (predict "factor_tail") (show cline) currentToken)
-  
+
 -- ghc --make translator
 main = do
   (inputFile : _) <- getArgs

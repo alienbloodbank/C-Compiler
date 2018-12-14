@@ -1,4 +1,4 @@
-module Scanner (Token(..), scan) where
+module Scanner (scan, TokenIterator, nextToken, extractValue, tiHead, tokenType, getMetaStatements) where
 
 import System.IO
 import Data.Char
@@ -16,6 +16,32 @@ data Token = Number String
            | Comment String
            | Identifier String deriving (Show)
 
+type TokenIterator = (String, [Token], Int)
+
+-- Token iterator
+nextToken :: [Token] -> Int -> TokenIterator
+nextToken [] cline = ("EOF", [], cline)
+nextToken ((Comment c) : rest) cline = nextToken rest (cline + 1)
+nextToken ((Reserved r) : rest) cline = (r, rest, cline)
+nextToken ((Symbol "\n") : rest) cline = nextToken rest (cline + 1)
+nextToken ((Symbol s) : rest) cline = (s, rest, cline)
+nextToken ((Number s) : rest) cline = ("number " ++ s, rest, cline)
+nextToken ((String s) : rest) cline = ("string " ++ s, rest, cline)
+nextToken ((Identifier s) : rest) cline = ("identifier " ++ s, rest, cline)
+
+extractValue :: String -> String
+extractValue s = snd (splitAt 1 (dropWhile (/=' ') s))
+
+tiHead :: TokenIterator -> String
+tiHead (ti, tokens, cline) = ti
+
+tokenType :: String -> String
+tokenType = takeWhile (/=' ')
+
+getMetaStatements :: [Token] -> [String]
+getMetaStatements [] = []
+getMetaStatements ((Comment c) : rest) = c : getMetaStatements rest
+getMetaStatements (_ : rest) = getMetaStatements rest
 
 --Takes a file specified by the file path and returns a list of tokens
 scan :: FilePath -> IO [Token]
@@ -41,6 +67,8 @@ tokenize ('{':r) = (Symbol "{") : (tokenize r)
 tokenize ('}':r) = (Symbol "}") : (tokenize r)
 tokenize ('(':r) = (Symbol "(") : (tokenize r)
 tokenize (')':r) = (Symbol ")") : (tokenize r)
+tokenize ('[':r) = (Symbol "[") : (tokenize r)
+tokenize (']':r) = (Symbol "]") : (tokenize r)
 tokenize (',':r) = (Symbol ",") : (tokenize r)
 tokenize (';':r) = (Symbol ";") : (tokenize r)
 tokenize ('+':r) = (Symbol "+") : (tokenize r)
