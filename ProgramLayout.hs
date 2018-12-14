@@ -65,7 +65,7 @@ preJump label varList = "\tsp = sp + " ++ (show (length varList)) ++ ";\n" ++ ch
                         "\tsp = sp + 3;\n" ++ checkStackOverflow ++
                         "\tmem[sp - 3] = fp;\n" ++
                         "\tmem[sp - 2] = &&" ++ label ++ ";\n"
-  where assignParamsCode x y = "\tmem[sp + " ++ (show (-x)) ++ "] = " ++ y ++ ";\n"
+  where assignParamsCode x y = "\tmem[sp - " ++ (show x) ++ "] = " ++ y ++ ";\n"
 
 -- Caller post-jump code generator
 postJump :: Table -> String -> Maybe String -> String

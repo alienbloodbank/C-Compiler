@@ -50,15 +50,15 @@ getMemVar (Table _ _ (Temps (Counts c1 t1, Counts c2 t2, Counts c3 t3))) value c
    "mem[" ++ (show index) ++ "]"
  | otherwise = errorWithoutStackTrace ("Semantic Error: line " ++ cline ++ ": '" ++ value ++ "' undeclared (first use in this function)")
 
-getMemArrayVar :: Table -> String -> String -> String -> String -> (String, String)
-getMemArrayVar table value fn code cline
+getMemArrayVar :: Table -> String -> String -> String -> (String, String)
+getMemArrayVar table value code cline
  | (Map.member value t2) =
    let (Just index) = (Map.lookup value t2) in
-   let fn1 = (fn ++ "\tr3 = " ++ (show index) ++ " + " ++ code ++ ";\n") in
-   ("mem[fp + r3]", fn1)
+   let fn = ("\tr3 = " ++ (show index) ++ " + " ++ code ++ ";\n") in
+   ("mem[fp + r3]", fn)
  | (Map.member value t1) =
    let (Just index) = (Map.lookup value t1) in
-   let fn1 = (fn ++ "\tr3 = " ++ (show index) ++ " + " ++ code ++ ";\n") in
-   ("mem[r3]", fn1)
+   let fn = ("\tr3 = " ++ (show index) ++ " + " ++ code ++ ";\n") in
+   ("mem[r3]", fn)
  | otherwise = errorWithoutStackTrace ("Semantic Error: line " ++ cline ++ ": '" ++ value ++ "' undeclared (first use in this function)")
  where (Table lc1 lc2 (Temps (Counts c1 t1, Counts c2 t2, cs3))) = table
