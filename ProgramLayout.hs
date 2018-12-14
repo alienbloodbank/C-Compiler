@@ -59,13 +59,13 @@ epilogue retMem = (retValCode retMem) ++
         retValCode (Just id) = "\tmem[fp - 1] = " ++ id ++ ";\n"
 
 -- Caller pre-jump code generator
-preJump :: String -> [String] -> String
-preJump label varList = "\tsp = sp + " ++ (show (length varList)) ++ ";\n" ++ checkStackOverflow ++
-                        (concat (zipWith assignParamsCode [1..] (reverse varList))) ++
+preJump :: String -> [String] -> [String] -> String
+preJump label varList indList = "\tsp = sp + " ++ (show (length varList)) ++ ";\n" ++ checkStackOverflow ++
+                        (concat (zipWith3 assignParamsCode [1..] (reverse varList) (reverse indList))) ++
                         "\tsp = sp + 3;\n" ++ checkStackOverflow ++
                         "\tmem[sp - 3] = fp;\n" ++
                         "\tmem[sp - 2] = &&" ++ label ++ ";\n"
-  where assignParamsCode x y = "\tmem[sp - " ++ (show x) ++ "] = " ++ y ++ ";\n"
+  where assignParamsCode x y z = z ++ "\tmem[sp - " ++ (show x) ++ "] = " ++ y ++ ";\n"
 
 -- Caller post-jump code generator
 postJump :: Table -> String -> Maybe String -> String

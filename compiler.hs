@@ -300,11 +300,11 @@ assignment_or_general_func_call_tail (currentToken, rest, cline) table fn idenVa
     (ti3, regCode, table1, fn1)
   | (tokenType currentToken) == "(" =
     let ti1 = (match (currentToken, rest, cline) "(") in
-    let (ti2, varList1, table1, fn1) = (expr_list ti1 table fn) in
+    let (ti2, varList1, indList1, table1, fn1) = (expr_list ti1 table fn) in
     let ti3 = (match ti2 ")") in
     let ti4 = (match ti3 ";") in
     let (table2, retLabel) = (getReturnLabel table1) in  
-    (ti4, (preJump retLabel varList1) ++ "\tgoto _func_" ++ idenValue ++ ";\n"  ++ (postJump table2 retLabel Nothing), table2, fn1)
+    (ti4, (preJump retLabel varList1 indList1) ++ "\tgoto _func_" ++ idenValue ++ ";\n"  ++ (postJump table2 retLabel Nothing), table2, fn1)
   | otherwise = (reportError (predict "assignment_or_general_func_call_tail") (show cline) currentToken)
 
 -- printf_func_call -> printf ( STRING printf_func_call_tail   
@@ -373,34 +373,34 @@ write_func_call (currentToken, rest, cline) table fn
   | otherwise = (reportError (predict "write_func_call") (show cline) currentToken)
 
 -- expr_list -> ε | non_empty_expr_list  
-expr_list :: TokenIterator -> Table -> String -> (TokenIterator, [String], Table, String)
+expr_list :: TokenIterator -> Table -> String -> (TokenIterator, [String], [String], Table, String)
 expr_list (currentToken, rest, cline) table fn
   | (tokenType currentToken) `elem` (parseTable "expr_list" "FOLLOW") =
-    ((currentToken, rest, cline), [], table, fn)
+    ((currentToken, rest, cline), [], [], table, fn)
   | (tokenType currentToken) `elem` (predict "non_empty_expr_list") =
-    let (ti1, varList1, table1, fn1) = (non_empty_expr_list (currentToken, rest, cline) table fn) in
-    (ti1, varList1, table1, fn1)
+    let (ti1, varList1, indList1, table1, fn1) = (non_empty_expr_list (currentToken, rest, cline) table fn) in
+    (ti1, varList1, indList1, table1, fn1)
   | otherwise = (reportError (predict "expr_list") (show cline) currentToken)
   
 -- non_empty_expr_list -> expression non_empty_expr_list_tail
-non_empty_expr_list :: TokenIterator -> Table -> String -> (TokenIterator, [String], Table, String)
+non_empty_expr_list :: TokenIterator -> Table -> String -> (TokenIterator, [String], [String], Table, String)
 non_empty_expr_list (currentToken, rest, cline) table fn
   | (tokenType currentToken) `elem` (predict "expression") =
     let (ti1, code1, table1, fn1, indexInit1) = (expression (currentToken, rest, cline) table fn) in
-    let (ti2, varList1, table2, fn2) = (non_empty_expr_list_tail ti1 table1 (fn1 ++ indexInit1)) in
-    (ti2, code1 : varList1, table2, fn2)
+    let (ti2, varList1, indList1, table2, fn2) = (non_empty_expr_list_tail ti1 table1 fn1) in
+    (ti2, code1 : varList1, indexInit1 : indList1, table2, fn2)
   | otherwise = (reportError (predict "non_empty_expr_list") (show cline) currentToken)
   
 -- non_empty_expr_list_tail -> ε | , expression non_empty_expr_list_tail
-non_empty_expr_list_tail :: TokenIterator -> Table -> String -> (TokenIterator, [String], Table, String)
+non_empty_expr_list_tail :: TokenIterator -> Table -> String -> (TokenIterator, [String], [String], Table, String)
 non_empty_expr_list_tail (currentToken, rest, cline) table fn
   | (tokenType currentToken) == "," =
     let ti1 = (match (currentToken, rest, cline) ",") in
     let (ti2, code1, table1, fn1, indexInit1) = (expression ti1 table fn) in
-    let (ti3, varList1, table2, fn2) = (non_empty_expr_list_tail ti2 table1 (fn1 ++ indexInit1)) in
-    (ti3, code1 : varList1, table2, fn2)
+    let (ti3, varList1, indList1, table2, fn2) = (non_empty_expr_list_tail ti2 table1 fn1) in
+    (ti3, code1 : varList1, indexInit1 : indList1, table2, fn2)
   | (tokenType currentToken) `elem` (parseTable "non_empty_expr_list_tail" "FOLLOW") =
-    ((currentToken, rest, cline), [], table, fn)
+    ((currentToken, rest, cline), [], [], table, fn)
   | otherwise = (reportError (predict "non_empty_expr_list_tail") (show cline) currentToken)
   
 -- if_statement -> if ( condition_expression ) block_statements if_statement_tail
@@ -683,11 +683,11 @@ factor_tail (currentToken, rest, cline) table fn idenValue
     (ti3, named_var, table1, fn1 ++ indexInit1, indexInit2)
   | (tokenType currentToken) == "(" =
     let ti1 = (match (currentToken, rest, cline) "(") in
-    let (ti2, varList1, table1, fn1) = (expr_list ti1 table fn) in
+    let (ti2, varList1, indList1, table1, fn1) = (expr_list ti1 table fn) in
     let ti3 = (match ti2 ")") in
     let (table2, named_var) = (addTemp table1) in
     let (table3, retLabel) = (getReturnLabel table2) in
-    let code1 = ((preJump retLabel varList1) ++ "\tgoto _func_" ++ idenValue ++ ";\n" ++ (postJump table3 retLabel (Just named_var))) in
+    let code1 = ((preJump retLabel varList1 indList1) ++ "\tgoto _func_" ++ idenValue ++ ";\n" ++ (postJump table3 retLabel (Just named_var))) in
     let fn2 = (fn1 ++ (growStackFromTemp table3) ++ code1) in
     (ti3, named_var, table3, fn2, "")
   | otherwise = (reportError (predict "factor_tail") (show cline) currentToken)
