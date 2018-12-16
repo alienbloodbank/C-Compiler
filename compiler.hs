@@ -227,11 +227,11 @@ statement (currentToken, rest, cline) nest table fn bc_label funcList
     let (ti1, code1, table1, fn1) = (write_func_call (currentToken, rest, cline) nest table fn) in
     (ti1, code1, table1, fn1, funcList)
   | (tokenType currentToken) `elem` (predict "if_statement") =
-    let (ti1, code1, table1, fn1) = (if_statement (currentToken, rest, cline) nest table fn bc_label) in
-    (ti1, code1, table1, fn1, funcList)
+    let (ti1, code1, table1, fn1, funcList1) = (if_statement (currentToken, rest, cline) nest table fn bc_label funcList) in
+    (ti1, code1, table1, fn1, funcList1)
   | (tokenType currentToken) `elem` (predict "while_statement") =
-    let (ti1, code1, table1, fn1) = (while_statement (currentToken, rest, cline) nest table fn) in
-    (ti1, code1, table1, fn1, funcList)
+    let (ti1, code1, table1, fn1, funcList1) = (while_statement (currentToken, rest, cline) nest table fn funcList) in
+    (ti1, code1, table1, fn1, funcList1)
   | (tokenType currentToken) `elem` (predict "return_statement") =
     let (ti1, code1, table1, fn1) = (return_statement (currentToken, rest, cline) nest table fn) in
     (ti1, code1, table1, fn1, funcList)
@@ -382,28 +382,28 @@ non_empty_expr_list_tail (currentToken, rest, cline) nest table fn
   | otherwise = (reportError (predict "non_empty_expr_list_tail") (show cline) currentToken)
   
 -- if_statement -> if ( condition_expression ) block_statements if_statement_tail
-if_statement :: TokenIterator -> Int -> Table -> String -> [String] -> (TokenIterator, String, Table, String)
-if_statement (currentToken, rest, cline) nest table fn bc_label
+if_statement :: TokenIterator -> Int -> Table -> String -> [String] -> [String] -> (TokenIterator, String, Table, String, [String])
+if_statement (currentToken, rest, cline) nest table fn bc_label funcList
   | (tokenType currentToken) == "if" =
     let ti1 = (match (currentToken, rest, cline) "if") in
     let ti2 = (match ti1 "(") in
     let (ti3, table1, fn1, true_label, false_label) = (condition_expression ti2 nest table fn) in
     let ti4 = (match ti3 ")") in
-    let (ti5, code1, table2, _) = (block_statements ti4 nest table1 bc_label []) in
-    let (ti6, code2, table3) = (if_statement_tail ti5 nest table2 false_label bc_label) in
-    (ti6, true_label ++ ":\n\t;\n" ++ code1 ++ code2, table3, fn1)
+    let (ti5, code1, table2, funcList1) = (block_statements ti4 nest table1 bc_label funcList) in
+    let (ti6, code2, table3, funcList2) = (if_statement_tail ti5 nest table2 false_label bc_label funcList1) in
+    (ti6, true_label ++ ":\n\t;\n" ++ code1 ++ code2, table3, fn1, funcList2)
   | otherwise = (reportError (predict "if_statement") (show cline) currentToken)
   
 -- if_statement_tail -> ε | else block_statements
-if_statement_tail :: TokenIterator -> Int -> Table -> String -> [String] -> (TokenIterator, String, Table)
-if_statement_tail (currentToken, rest, cline) nest table false_label bc_label
+if_statement_tail :: TokenIterator -> Int -> Table -> String -> [String] -> [String] -> (TokenIterator, String, Table, [String])
+if_statement_tail (currentToken, rest, cline) nest table false_label bc_label funcList
   | (tokenType currentToken) == "else" =
     let ti1 = (match (currentToken, rest, cline) "else") in
-    let (ti2, code1, table1, _) = (block_statements ti1 nest table bc_label []) in
+    let (ti2, code1, table1, funcList1) = (block_statements ti1 nest table bc_label funcList) in
     let (table2, else_label) = (getConditionalLabel table1) in
-    (ti2, "\tgoto " ++ else_label ++ ";\n" ++ false_label ++ ":\n\t;\n" ++ code1 ++ else_label ++ ":\n\t;\n", table2)
+    (ti2, "\tgoto " ++ else_label ++ ";\n" ++ false_label ++ ":\n\t;\n" ++ code1 ++ else_label ++ ":\n\t;\n", table2, funcList1)
   | (tokenType currentToken) `elem` (parseTable "if_statement_tail" "FOLLOW") =
-    ((currentToken, rest, cline), false_label ++ ":\n\t;\n", table)
+    ((currentToken, rest, cline), false_label ++ ":\n\t;\n", table, funcList)
   | otherwise = (reportError (predict "if_statement_tail") (show cline) currentToken)
   
 -- condition_expression -> condition condition_expression_tail
@@ -482,8 +482,8 @@ comparison_op (currentToken, rest, cline)
   | otherwise = (reportError (predict "comparison_op") (show cline) currentToken)
   
 -- while_statement -> while ( condition_expression ) block_statements	
-while_statement :: TokenIterator -> Int -> Table -> String -> (TokenIterator, String, Table, String)
-while_statement (currentToken, rest, cline) nest table fn
+while_statement :: TokenIterator -> Int -> Table -> String -> [String] -> (TokenIterator, String, Table, String, [String])
+while_statement (currentToken, rest, cline) nest table fn funcList
   | (tokenType currentToken) == "while" =
     let ti1 = (match (currentToken, rest, cline) "while") in
     let ti2 = (match ti1 "(") in
@@ -491,8 +491,8 @@ while_statement (currentToken, rest, cline) nest table fn
     let fn1 = (fn ++ begin_label ++ ":\n\t;\n") in
     let (ti3, table2, fn2, true_label, false_label) = (condition_expression ti2 nest table1 fn1) in
     let ti4 = (match ti3 ")") in
-    let (ti5, code1, table3, _) = (block_statements ti4 nest table2 [begin_label, false_label] []) in
-    (ti5, true_label ++ ":\n\t;\n" ++ code1 ++ "\tgoto " ++ begin_label ++ ";\n" ++ false_label ++ ":\n\t;\n" , table3, fn2)
+    let (ti5, code1, table3, funcList1) = (block_statements ti4 nest table2 [begin_label, false_label] funcList) in
+    (ti5, true_label ++ ":\n\t;\n" ++ code1 ++ "\tgoto " ++ begin_label ++ ";\n" ++ false_label ++ ":\n\t;\n" , table3, fn2, funcList1)
   | otherwise = (reportError (predict "while_statement") (show cline) currentToken)
 
 -- return_statement -> return return_statement_tail
