@@ -28,6 +28,11 @@ vonNeumannExitCode = "_overflow:\n\t;\n" ++
 checkStackOverflow :: String
 checkStackOverflow = "\tif(sp >= STACK_SIZE) goto _overflow;\n"
 
+-- Update stack pointer whenever a temporary is created
+growStackFromTemp :: Table -> Int -> String
+growStackFromTemp (Table _ _ fmap map1) nest = "\tsp = fp + " ++ (show c1) ++ ";\n" ++ checkStackOverflow
+   where (_, Counts c1 t1, _) = (let (Just subTable) = (Map.lookup nest map1) in subTable)
+
 -- Append Stack and Frame pointer initialization code based on the following information:
 -- Reserve a subset of the initial memory to store global variables if they exist.
 -- Reserve the next 2 locations to store the main function's return address and return value for compiler simplicity.
@@ -75,7 +80,7 @@ postJump :: Table -> Int -> String -> Maybe String -> String
 postJump (Table _ _ _ map1) nest label retMem = label ++ ":\n\t;\n" ++
                         "\tfp = mem[sp - 4];\n" ++
                         (retValCode retMem) ++
-                        "\tsp = fp + " ++ (show c1) ++ ";\n"
+                        "\tsp = fp + " ++ (show c1) ++ ";\n" ++ checkStackOverflow
   where retValCode Nothing = ""
         retValCode (Just id) = "\t" ++ id ++ " = mem[sp - 2];\n"
         (_, Counts c1 t1, _) = (let (Just subTable) = (Map.lookup nest map1) in subTable)

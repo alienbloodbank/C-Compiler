@@ -85,8 +85,7 @@ func_tail (currentToken, rest, cline) nest table idenValue funcList
     let (ti2, table1, funcList1) = (program_data ti1 nest table funcList) in
     let (ti3, code1, table2) = (statements ti2 nest table1 []) in
     let ti4 = (match ti3 "}") in
-     -- Solve here
-    (ti4, table2, ((prologue table2 nest idenValue) ++ (funcTailCode code1)) : funcList1)
+    (ti4, table2, ((prologue table1 nest idenValue) ++ (funcTailCode code1)) : funcList1)
   | otherwise = (reportError (predict "func_tail") (show cline) currentToken)
   
 -- type_name -> int | void
@@ -265,7 +264,7 @@ assignment_or_general_func_call_tail (currentToken, rest, cline) nest table fn i
     let (table4, named_var2, indfn3) = (getMemArrayVar table3 nest idenValue named_var1 (show cline)) in
     let regCode = indfn2 ++ "\tr1 = " ++ code2 ++ ";\n" ++ indfn1 ++ "\t" ++ named_var1 ++ " = " ++ code1 ++ ";\n" ++ indfn3 ++
                   "\t" ++ named_var2 ++ " = r1;\n" in
-    (ti6, regCode, table4, fn2)
+    (ti6, regCode, table4, fn2 ++ (growStackFromTemp table4 nest))
   | (tokenType currentToken) == "=" =
     let ti1 = (match (currentToken, rest, cline) "=") in
     let (ti2, code1, table1, fn1, indfn1) = (expression ti1 nest table fn) in
@@ -560,6 +559,7 @@ expression_tail (currentToken, rest, cline) nest table fn et_left indfn
                   indfn1 ++
                   "\tr2 = " ++ code2 ++ ";\n" ++
                   "\tr1 = r1" ++ code1 ++ "r2;\n" ++
+                  (growStackFromTemp table2 nest) ++
                   "\t" ++ et_place ++ " = r1;\n" in
     let fn2 = regCode in
     let (ti3, code3, table3, fn3, indfn2) = (expression_tail ti2 nest table2 fn2 et_place "") in
@@ -600,6 +600,7 @@ term_tail (currentToken, rest, cline) nest table fn tt_left indfn
                   indfn1 ++
                   "\tr2 = " ++ code2 ++ ";\n" ++
                   "\tr1 = r1" ++ code1 ++ "r2;\n" ++
+                  (growStackFromTemp table2 nest) ++
                   "\t" ++ tt_place ++ " = r1;\n" in
     let fn2 = regCode in
     let (ti3, code3, table3, fn3, indfn2) = (term_tail ti2 nest table2 fn2 tt_place "") in
@@ -629,13 +630,13 @@ factor (currentToken, rest, cline) nest table fn
   | (tokenType currentToken) == "number" =
     let ti1 = (match (currentToken, rest, cline) "number") in
     let (table1, named_var) = (addTemp table nest) in
-    let fn1 = (fn ++ "\t" ++ named_var ++ " = " ++ (extractValue currentToken) ++ ";\n") in
+    let fn1 = (fn ++ (growStackFromTemp table1 nest) ++ "\t" ++ named_var ++ " = " ++ (extractValue currentToken) ++ ";\n") in
     (ti1, named_var, table1, fn1, "")
   | (tokenType currentToken) == "-" =
     let ti1 = (match (currentToken, rest, cline) "-") in
     let ti2 = (match ti1 "number") in
     let (table1, named_var) = (addTemp table nest) in
-    let fn1 = (fn ++ "\t" ++ named_var ++ " = " ++ "-" ++ (extractValue (tiHead ti1)) ++ ";\n") in
+    let fn1 = (fn ++ (growStackFromTemp table1 nest) ++ "\t" ++ named_var ++ " = " ++ "-" ++ (extractValue (tiHead ti1)) ++ ";\n") in
     (ti2, named_var, table1, fn1, "")
   | (tokenType currentToken) == "(" =
     let ti1 = (match (currentToken, rest, cline) "(") in
@@ -656,7 +657,7 @@ factor_tail (currentToken, rest, cline) nest table fn idenValue
     let ti3 = (match ti2 "]") in
     let (table2, named_var1) = (addTemp table1 nest) in
     let (table3, named_var2, indfn2) = (getMemArrayVar table2 nest idenValue named_var1 (show cline)) in
-    (ti3, named_var2, table3, fn1, indfn1 ++ "\t" ++ named_var1 ++ " = " ++ code1 ++ ";\n" ++ indfn2)
+    (ti3, named_var2, table3, fn1 ++ (growStackFromTemp table3 nest), indfn1 ++ "\t" ++ named_var1 ++ " = " ++ code1 ++ ";\n" ++ indfn2)
   | (tokenType currentToken) == "(" =
     let ti1 = (match (currentToken, rest, cline) "(") in
     let (ti2, varList1, indfnList1, table1, fn1) = (expr_list ti1 nest table fn) in
@@ -665,7 +666,7 @@ factor_tail (currentToken, rest, cline) nest table fn idenValue
     let (table3, retLabel) = (getReturnLabel table2) in
     let nest1 = (getScopeCount table3 idenValue) in
     let code1 = ((preJump nest1 retLabel varList1 indfnList1) ++ "\tgoto _func_" ++ idenValue ++ ";\n" ++ (postJump table3 nest retLabel (Just named_var))) in
-    let fn2 = (fn1 ++ code1) in
+    let fn2 = (fn1 ++ (growStackFromTemp table3 nest) ++ code1) in
     (ti3, named_var, table3, fn2, "")
   | otherwise = (reportError (predict "factor_tail") (show cline) currentToken)
 
